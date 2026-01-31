@@ -1,0 +1,14 @@
+{
+  "name": "nsx-userscript",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:min": "vite build --mode min",
+    "build:all": "npm run build && npm run build:min"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}
