@@ -15,7 +15,7 @@ function userscriptBannerPlugin() {
       try {
         const raw = fs.readFileSync(META_FILE, "utf8");
         const m = raw.match(USER_SCRIPT_RE);
-        banner = (m ? m[0] : raw).trimEnd() + "\n";
+        banner = (m ? m[0] : raw).trimEnd() + "\n\n";
       } catch (e) {
         banner = "";
       }

@@ -1,5 +1,5 @@
 // 用户卡片扩展 - 跨标签页同步未读消息
-import { $ } from "../core.js";
+import { $, net } from "../core.js";
 
 class Broadcast {
     static ins = new Map();
@@ -52,9 +52,7 @@ export default {
         bn.on(({ data }) => { if (data?.type === "unreadCount" && data.counts) upAll(data.counts); });
         bn.send({ type: "unreadCount", counts: ctx.user?.unViewedCount || {}, timestamp: Date.now() });
         bn.task(async () => {
-            const r = await fetch("/api/notification/unread-count", { credentials: "include" });
-            if (!r.ok) throw 0;
-            const d = await r.json();
+            const d = await net.get("/api/notification/unread-count");
             if (d?.success && d.unreadCount) return { type: "unreadCount", counts: d.unreadCount, timestamp: Date.now() };
             throw 0;
         }, 5000);

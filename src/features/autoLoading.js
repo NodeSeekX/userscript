@@ -1,5 +1,5 @@
 // 下拉加载翻页
-import { net, debounce, throttle } from "../core.js";
+import { $, $$, net, debounce, throttle } from "../core.js";
 
 const PROFILES = {
     list: { path: /^\/(categories\/|page|award|search|$)/, threshold: 1500, next: ".nsk-pager a.pager-next", list: "ul.post-list:not(.topic-carousel-panel)", pagerTop: "div.nsk-pager.pager-top", pagerBot: "div.nsk-pager.pager-bottom" },
@@ -50,6 +50,15 @@ export default {
 
                 const src = doc.querySelector(profile.list), dst = document.querySelector(profile.list);
                 if (src && dst) dst.append(...src.children);
+
+                // 渲染新加载评论的 Vue 组件
+                if (ctx.isPost) {
+                    const vue = $(".comment-menu")?.__vue__;
+                    if (vue) $$(".content-item").forEach((item, index) => {
+                        const mp = $(".comment-menu-mount", item);
+                        if (mp) { const inst = new vue.$root.constructor(vue.$options); inst.setIndex(index); inst.$mount(mp); }
+                    });
+                }
 
                 [profile.pagerTop, profile.pagerBot].forEach(sel => {
                     const s = doc.querySelector(sel), d = document.querySelector(sel);
