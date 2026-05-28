@@ -5,7 +5,6 @@ const CSS = `.nsplus-tip{background:rgba(255,217,0,.8);padding:3px;text-align:ce
 
 export default {
     id: "signinTips",
-    deps: ["ui"],
     order: 82,
     cfg: { signin_tips: { enabled: true } },
     meta: { signin_tips: { label: "签到提示", group: "基本设置" } },

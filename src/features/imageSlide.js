@@ -21,7 +21,6 @@ const bind = (els, ctx) => {
 
 export default {
     id: "imageSlide",
-    deps: ["ui"],
     order: 160,
     cfg: { image_slide: { enabled: true } },
     meta: { image_slide: { label: "图片预览", group: "内容设置" } },

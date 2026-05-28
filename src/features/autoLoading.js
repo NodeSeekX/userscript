@@ -13,7 +13,8 @@ export default {
     meta: { loading_post: { label: "加载帖子", group: "内容设置" }, loading_comment: { label: "加载评论", group: "内容设置" } },
     match: ctx => ctx.store.get("loading_post.enabled", true) || ctx.store.get("loading_comment.enabled", true),
     init(ctx) {
-        const profile = ctx.isList ? PROFILES.list : ctx.isPost ? PROFILES.post : null;
+        const profile = (ctx.isList && ctx.store.get("loading_post.enabled", true)) ? PROFILES.list : 
+                        (ctx.isPost && ctx.store.get("loading_comment.enabled", true)) ? PROFILES.post : null;
         if (!profile) return;
 
         let busy = false, prevY = scrollY;

@@ -5,7 +5,6 @@ const CSS = `.role-tag.user-level{color:#fafafa}.user-lv0{background:#c7c2c2;bor
 
 export default {
     id: "levelTag",
-    deps: ["ui"],
     order: 260,
     cfg: { level_tag: { enabled: true, low_lv_alarm: true, low_lv_max_days: 30 } },
     meta: { level_tag: { label: "等级标签", group: "显示设置", fields: { low_lv_alarm: { type: "SWITCH", label: "低等级警告" }, low_lv_max_days: { type: "NUMBER", label: "注册天数", valueType: "number" } } } },
@@ -22,8 +21,9 @@ export default {
         } catch { return; }
 
         const days = Math.floor((Date.now() - new Date(user.created_at)) / 864e5);
-        const alarm = ctx.store.get("level_tag.low_lv_alarm") && days < (ctx.store.get("level_tag.low_lv_max_days", 30) || 30) ? "⚠️" : "";
-        const rank = Math.floor(Math.sqrt(user.coin || 0) / 10);
+        const alarm = ctx.store.get("level_tag.low_lv_alarm") && days < ctx.store.get("level_tag.low_lv_max_days", 30) ? "⚠️" : "";
+        const coin = user.coin < 0 ? 0 : user.coin;
+        const rank = Math.floor(Math.sqrt(coin) / 10);
 
         const span = document.createElement("span");
         span.className = `nsk-badge role-tag user-level user-lv${rank}`;

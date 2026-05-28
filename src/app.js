@@ -60,13 +60,6 @@ export function start() {
     addStyle("nsx-layui-css", "https://s.cfn.pp.ua/layui/2.10.3/css/layui.css");
     addStyle("nsx-layui-dark", "https://s.cfn.pp.ua/layui/theme-dark/2.10.3/css/layui-theme-dark-selector.css");
 
-    // highlight.js 脚本
-    addScript("nsx-hljs-script", "https://s4.zstatic.net/ajax/libs/highlight.js/11.9.0/highlight.min.js");
-    // highlight.js 样式
-    addStyle("hightlight-style", GM_getResourceURL("highlightStyle"));
-    // hljs 初始化
-    addScript("nsx-hljs-onload", `(()=>{const r=()=>{if(window.hljs&&typeof hljs.highlightAll==="function")hljs.highlightAll()};document.readyState==="complete"?r():window.addEventListener("load",r,{once:true})})()`);
-
     // 加载模块
     const mods = import.meta.glob("./features/*.js", { eager: true });
     Object.values(mods).forEach(m => m.default && define(m.default));
@@ -76,8 +69,10 @@ export function start() {
     const ctx = createCtx(obs);
 
     // 初始化 UI (依赖 layui)
+    const noop = () => { };
+    const UI_NOOP = { toast: noop, info: noop, success: noop, warning: noop, error: noop, alert: noop, confirm: noop, tips: noop };
     const initUI = () => {
-        if (!window.layui?.layer) return (ctx.ui = {});
+        if (!window.layui?.layer) return (ctx.ui = UI_NOOP);
         const layer = window.layui.layer, uw = ctx.uw;
         ctx.ui = {
             layer,

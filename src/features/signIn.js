@@ -3,7 +3,6 @@ import { net } from "../core.js";
 
 export default {
     id: "signIn",
-    deps: ["ui"],
     order: 80,
     cfg: {
         sign_in: {

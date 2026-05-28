@@ -25,7 +25,7 @@ export const $$ = (s, r = document) => [...(r?.querySelectorAll(s) || [])];
 
 export function addStyle(id, val) {
     if (document.getElementById(id)) return;
-    const isUrl = /^(https?:)?\/\//.test(val);
+    const isUrl = /^(https?:|blob:|data:)/.test(val) || /^\/\//.test(val);
     const el = document.createElement(isUrl ? "link" : "style");
     el.id = id;
     isUrl ? (el.rel = "stylesheet", el.href = val) : (el.textContent = val);
@@ -116,13 +116,18 @@ export function boot(ctx) {
         edges.get(cur.id).forEach(n => { indeg.set(n, indeg.get(n) - 1); if (!indeg.get(n)) q.push(modules.get(n)); });
         q.sort((a, b) => a.order - b.order);
     }
-    // 初始化
+    // 初始化与注册监听
     sorted.forEach(m => {
-        try { if (m.match?.(ctx) !== false) m.init?.(ctx); } catch (e) { env.error(m.id, e); }
-    });
-    // watch
-    if (ctx.watch) sorted.forEach(m => {
-        const w = typeof m.watch === "function" ? m.watch(ctx) : m.watch;
-        [].concat(w || []).filter(Boolean).forEach(i => ctx.watch(i.sel, i.fn, i.opts));
+        try {
+            if (m.match?.(ctx) !== false) {
+                m.init?.(ctx);
+                if (ctx.watch && m.watch) {
+                    const w = typeof m.watch === "function" ? m.watch(ctx) : m.watch;
+                    [].concat(w || []).filter(Boolean).forEach(i => ctx.watch(i.sel, i.fn, i.opts));
+                }
+            }
+        } catch (e) {
+            env.error(m.id, e);
+        }
     });
 }

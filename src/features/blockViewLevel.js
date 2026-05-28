@@ -16,7 +16,9 @@ const run = (els, ctx) => {
 export default {
     id: "blockViewLevel",
     order: 222,
-    match: ctx => ctx.isList,
+    cfg: { block_view_level: { enabled: true } },
+    meta: { block_view_level: { label: "隐藏高权限帖", group: "过滤设置" } },
+    match: ctx => ctx.isList && ctx.store.get("block_view_level.enabled", true),
     init(ctx) { run($$('.post-list-item use[href="#lock"]'), ctx); },
     watch: ctx => ({ sel: '.post-list-item use[href="#lock"]', fn: els => run(els, ctx), opts: { debounce: 80 } })
 };

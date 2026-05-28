@@ -3,7 +3,6 @@ import { net, addStyle } from "../core.js";
 
 export default {
     id: "blockMembers",
-    deps: ["ui"],
     order: 240,
     cfg: { block_members: { enabled: true } },
     meta: { block_members: { label: "屏蔽用户", group: "过滤设置" } },
@@ -17,7 +16,9 @@ export default {
             const avatar = item.querySelector(".avatar-normal");
             if (!avatar) return;
             avatar.addEventListener("click", () => {
+                let tries = 0;
                 const check = setInterval(() => {
+                    if (++tries > 60) { clearInterval(check); return; } // 3 秒超时 (50ms × 60)
                     const card = document.querySelector("div.user-card.hover-user-card");
                     const pm = card?.querySelector("a.btn");
                     if (!card || !pm) return;

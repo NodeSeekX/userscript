@@ -7,10 +7,7 @@ const el = (t, c, p, s) => { const e = document.createElement(t); if (c) e.class
 
 export default {
     id: "menus",
-    deps: ["ui"],
     order: 30,
-    cfg: { open_post_in_new_tab: { enabled: false } },
-    meta: { open_post_in_new_tab: { label: "新标签页打开帖子", group: "内容设置" } },
     match: () => true,
     init(ctx) {
         const uw = ctx.uw, code = ctx.site?.code || "ns";
@@ -56,24 +53,6 @@ export default {
             location.reload();
         };
 
-        const switchNewTab = () => {
-            const next = !store.get("open_post_in_new_tab.enabled", false);
-            try {
-                uw.indexedDB.open("ns-preference-db").onsuccess = e => {
-                    const db = e.target.result;
-                    const s = db.transaction("ns-preference-store", "readwrite").objectStore("ns-preference-store");
-                    s.get("configuration").onsuccess = e2 => {
-                        const c = e2.target.result || {};
-                        c.openPostInNewPage = next;
-                        s.put(c, "configuration");
-                        store.set("open_post_in_new_tab.enabled", next);
-                        regMenus();
-                        ctx.ui.alert("", `已${next ? "开启" : "关闭"}新标签页打开链接`);
-                    };
-                };
-            } catch { }
-        };
-
         const advSettings = () => {
             if (!ctx.ui.layer || !window.layui) return;
             addStyle("nsx-cfg", CSS);
@@ -102,6 +81,12 @@ export default {
                 const col = f.col ?? defaultCol;
                 const w = el("div", `layui-col-md${col}`), item = el("div", "layui-form-item", w);
                 const lbl = el("label", "layui-form-label", item); lbl.textContent = f.label || f.key;
+                if (f.desc) {
+                    const icon = el("i", "layui-icon layui-icon-help", lbl);
+                    icon.style.cssText = "font-size:14px;color:#999;margin-left:4px;";
+                    lbl.style.cursor = "help";
+                    lbl.setAttribute("data-desc", f.desc);
+                }
                 const blk = el("div", "layui-input-block", item);
                 let inp;
                 if (f.type === "SWITCH") { inp = el("input", "", blk); inp.type = "checkbox"; if (val) inp.setAttribute("checked", ""); inp.setAttribute("lay-skin", "switch"); inp.setAttribute("lay-text", "开启|关闭"); inp.name = path; }
@@ -115,6 +100,13 @@ export default {
                     });
                     inp = blk.querySelector("input");
                 }
+                else if (f.type === "SELECT" && f.options) {
+                    inp = el("select", "", blk); inp.name = path;
+                    f.options.forEach(opt => {
+                        const o = el("option", "", inp); o.value = opt.value; o.textContent = opt.text;
+                        if (String(val) === String(opt.value)) o.setAttribute("selected", "");
+                    });
+                }
                 else if (f.type === "COLOR") {
                     const inpWrap = el("div", "layui-input-inline", blk); inpWrap.style.width = "100px";
                     inp = el("input", "layui-input", inpWrap); inp.type = "text"; inp.name = path; inp.value = val ?? ""; inp.readOnly = true;
@@ -123,7 +115,14 @@ export default {
                     const wrap = el("div", "", cpWrap);
                     wrap.dataset.colorPath = path; wrap.dataset.colorVal = val ?? ""; wrap.dataset.colorInp = inp.name; wrap.dataset.colorDefault = f.defaultVal ?? "";
                 }
-                else { inp = el("input", "layui-input", blk); inp.type = f.type === "NUMBER" ? "number" : "text"; inp.setAttribute("value", val ?? ""); inp.name = path; }
+                else if (f.type === "BUTTON") {
+                    inp = el("button", "layui-btn layui-btn-primary layui-btn-sm", blk);
+                    inp.type = "button";
+                    inp.textContent = f.buttonText || "点击执行";
+                    inp.style.marginTop = "4px";
+                    if (f.action) inp.setAttribute("onclick", `document.dispatchEvent(new CustomEvent('nsx-action', { detail: '${f.action}' }))`);
+                }
+                else { inp = el("input", "layui-input", blk); inp.type = f.type === "NUMBER" ? "number" : "text"; inp.setAttribute("placeholder", f.placeholder || ""); inp.setAttribute("value", val ?? ""); inp.name = path; }
                 if (inp) inp.dataset.valueType = f.valueType || "";
                 return w;
             };
@@ -147,7 +146,7 @@ export default {
                 const cols = m.cols || 1, defaultCol = Math.floor(12 / cols);
                 Object.keys(cfg).filter(k => k !== "enabled" && !isObj(cfg[k]) && !hidden.has(k)).forEach(k => {
                     const fm = fields[k] || {};
-                    const f = { key: k, label: fm.label || k, type: inferType(cfg[k], fm), options: fm.options, placeholder: fm.placeholder, valueType: inferVT(cfg[k], fm), col: fm.col, defaultVal: cfg[k] };
+                    const f = { key: k, label: fm.label || k, type: inferType(cfg[k], fm), options: fm.options, placeholder: fm.placeholder, valueType: inferVT(cfg[k], fm), col: fm.col, defaultVal: cfg[k], action: fm.action, buttonText: fm.buttonText, desc: fm.desc };
                     const cur = store.get(`${base}.${k}`, cfg[k]);
                     const fe = makeField(f, `${base}.${k}`, cur, defaultCol);
                     if (fe) body.appendChild(fe);
@@ -155,7 +154,17 @@ export default {
                 return card;
             };
 
-            Object.entries(groups).forEach(([g, list], i) => {
+            const orderArr = ["基本设置", "显示设置", "内容设置", "图床设置", "过滤设置", "其他设置", "实验性"];
+            const groupOrderMap = {};
+            orderArr.forEach((g, i) => { groupOrderMap[g.trim()] = i; });
+
+            const sortedGroups = Object.entries(groups).sort(([g1], [g2]) => {
+                const idx1 = groupOrderMap[g1] ?? 999;
+                const idx2 = groupOrderMap[g2] ?? 999;
+                return idx1 !== idx2 ? idx1 - idx2 : g1.localeCompare(g2);
+            });
+
+            sortedGroups.forEach(([g, list], i) => {
                 const fs = el("fieldset", "layui-elem-field layui-field-title", wrapper); fs.id = `group-${i}`;
                 const lg = el("legend", "", fs); lg.textContent = g;
                 const fd = el("div", "layui-form", wrapper);
@@ -176,6 +185,10 @@ export default {
                 success: ly => {
                     const r = ly?.[0] || ly;
                     try { window.layui.form?.render(); } catch { }
+                    r?.querySelectorAll?.("label[data-desc]").forEach(lbl => {
+                        lbl.onmouseenter = () => ctx.ui.tips?.(lbl.getAttribute("data-desc"), lbl, { tips: [1, '#333'], time: 0 });
+                        lbl.onmouseleave = () => ctx.ui.layer?.closeAll?.('tips');
+                    });
                     // 滚动同步：右侧滚动时高亮左侧菜单
                     const content = r?.querySelector?.("#nsx-config-content");
                     const menu = r?.querySelector?.("#nsx-config-menu");
@@ -222,7 +235,7 @@ export default {
                         else if (el.tagName === "TEXTAREA") v = vt === "array" ? el.value.split("\n").map(s => s.trim()).filter(Boolean) : el.value;
                         else if (el.type === "number" || vt === "number") { const n = Number(el.value); v = Number.isFinite(n) ? n : 0; }
                         else v = el.value;
-                        if (v !== undefined && v !== "") store.set(el.name, v);
+                        if (v !== undefined) store.set(el.name, v);
                     });
                     ctx.ui.layer.msg("设置已保存，刷新生效");
                     ctx.ui.layer.close(idx);
@@ -234,7 +247,7 @@ export default {
             { name: "sign_in", cb: switchState, text: "自动签到", states: [{ s1: "❌", s2: "关闭" }, { s1: "🎲", s2: "随机🍗" }, { s1: "📌", s2: "5个🍗" }] },
             { name: "re_sign", cb: reSign, text: "🔂 重试签到", states: [] },
             { name: "loading_post", cb: switchState, text: "下拉加载翻页", states: [{ s1: "❌", s2: "关闭" }, { s1: "✅", s2: "开启" }] },
-            { name: "open_post_in_new_tab", cb: switchNewTab, text: "新标签页打开帖子", states: [{ s1: "❌", s2: "关闭" }, { s1: "✅", s2: "开启" }] },
+            { name: "open_post_in_new_tab", cb: (n, s) => { switchState(n, s); ctx.ui.layer.msg("刷新页面生效"); }, text: "新标签页打开帖子", states: [{ s1: "❌", s2: "关闭" }, { s1: "✅", s2: "开启" }] },
             { name: "advanced_settings", cb: advSettings, text: "⚙️ 高级设置", states: [] },
             { name: "feedback", cb: () => GM_openInTab("https://greasyfork.org/zh-CN/scripts/479426/feedback", { active: true, insert: true, setParent: true }), text: "💬 反馈 & 建议", states: [] }
         ];
