@@ -230,22 +230,22 @@ export default {
             const logs = [];
             let modified = false;
 
-            // 1. 短链解析
+            // 1. 去跳板
+            const j = unwrapJump(u);
+            if (j.logs.length) { u = j.u; logs.push(...j.logs); modified = true; }
+
+            if (!a.isConnected || a.getAttribute('href') !== href) return;
+
+            // 2. 短链解析
             if (shortHosts.has(u.hostname.toLowerCase())) {
                 a.classList.add('nsp-resolving');
                 const r = await resolveShort(u.toString());
                 a.classList.remove('nsp-resolving');
                 if (r.ok) {
                     const res = tryURL(r.url);
-                    if (res) { u = res; logs.push(`🔍 短链: ${new URL(href, location.href).hostname}`); modified = true; }
+                    if (res) { u = res; logs.push(`🔍 短链: ${u.hostname}`); modified = true; }
                 }
             }
-
-            // 2. 去跳板
-            const j = unwrapJump(u);
-            if (j.logs.length) { u = j.u; logs.push(...j.logs); modified = true; }
-
-            if (!a.isConnected || a.getAttribute('href') !== href) return;
 
             // 3. DSL 规则净化
             const p = purifyUrl(u.toString(), activeRules);

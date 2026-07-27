@@ -27,6 +27,60 @@ export default {
             });
         };
 
+        const _showCard = (anchor, uid) => {
+            const hc = unsafeWindow.hoverCard;
+            if (!hc) return;
+            if (!hc.$el || !document.body.contains(hc.$el)) {
+                hc.setIsHoverCard(true);
+                hc.$mount(document.body.appendChild(document.createElement("div")));
+            }
+            const { left, top } = anchor.getBoundingClientRect();
+            Object.assign(hc, { left, top });
+            hc.loadUser(uid);
+            hc.show();
+        };
+
+        const bindPostList = (doc) => {
+            doc.querySelectorAll(".post-list .avatar-normal").forEach(n => {
+                const uid = +n.dataset.uid;
+                if (!isNaN(uid)) n.addEventListener("click", e => { e.preventDefault(); _showCard(n, uid); });
+            });
+        };
+
+        const bindCommentList = (doc, cfg) => {
+            if (!cfg?.postData?.comments) return;
+            doc.querySelectorAll(".content-item").forEach((item, i) => {
+                const uid = cfg.postData.comments[i]?.poster?.uid;
+                const avatar = item.querySelector(".avatar-normal");
+                if (uid && avatar) avatar.addEventListener("click", e => { e.preventDefault(); _showCard(avatar, uid); });
+            });
+        };
+
+        const syncCommentData = (doc) => {
+            const json = doc.getElementById("temp-script")?.textContent;
+            if (!json) return null;
+            try {
+                const cfg = JSON.parse(decodeURIComponent(atob(json).split("").map(c => "%" + c.charCodeAt(0).toString(16).padStart(2, "0")).join("")));
+                if (cfg?.postData?.comments) ctx.uw.__config__.postData.comments.push(...cfg.postData.comments);
+                return cfg;
+            } catch {
+                return null;
+            }
+        };
+
+        const mountCommentVueComponents = () => {
+            const vue = $(".comment-menu")?.__vue__;
+            if (!vue) return;
+            $$(".content-item").forEach((item, index) => {
+                const mp = $(".comment-menu-mount", item);
+                if (mp) {
+                    const inst = new vue.$root.constructor(vue.$options);
+                    inst.setIndex(index);
+                    inst.$mount(mp);
+                }
+            });
+        };
+
         const load = async () => {
             if (busy) return;
             const atBottom = document.documentElement.scrollHeight <= innerHeight + scrollY + profile.threshold;
@@ -38,27 +92,20 @@ export default {
             try {
                 const html = await net.get(nextUrl, {}, "text");
                 const doc = new DOMParser().parseFromString(html, "text/html");
-                blockByLevel(doc);
 
-                // 评论数据同步
-                if (ctx.isPost) {
-                    const json = doc.getElementById("temp-script")?.textContent;
-                    if (json) try {
-                        const cfg = JSON.parse(decodeURIComponent(atob(json).split("").map(c => "%" + c.charCodeAt(0).toString(16).padStart(2, "0")).join("")));
-                        if (cfg?.postData?.comments) ctx.uw.__config__.postData.comments.push(...cfg.postData.comments);
-                    } catch { }
+                if (ctx.isList) {
+                    blockByLevel(doc);
+                    bindPostList(doc);
+                } else if (ctx.isPost) {
+                    const cfg = syncCommentData(doc);
+                    bindCommentList(doc, cfg);
                 }
 
                 const src = doc.querySelector(profile.list), dst = document.querySelector(profile.list);
                 if (src && dst) dst.append(...src.children);
 
-                // 渲染新加载评论的 Vue 组件
                 if (ctx.isPost) {
-                    const vue = $(".comment-menu")?.__vue__;
-                    if (vue) $$(".content-item").forEach((item, index) => {
-                        const mp = $(".comment-menu-mount", item);
-                        if (mp) { const inst = new vue.$root.constructor(vue.$options); inst.setIndex(index); inst.$mount(mp); }
-                    });
+                    mountCommentVueComponents();
                 }
 
                 [profile.pagerTop, profile.pagerBot].forEach(sel => {

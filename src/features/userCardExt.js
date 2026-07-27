@@ -29,6 +29,29 @@ export default {
     match: ctx => ctx.loggedIn && (ctx.isPost || ctx.isList) && ctx.store.get("user_card_ext.enabled", true),
     async init(ctx) {
         const bn = new Broadcast("nsx_notify");
+        let unread = -1, timer = 0, originalTitle = "";
+        const stopNotice = () => {
+            if (!timer) return;
+            clearInterval(timer);
+            timer = 0;
+            document.title = originalTitle;
+        };
+        const updateNotice = counts => {
+            const next = +counts.all || 0, hasNew = unread >= 0 && next > unread;
+            unread = next;
+            if (!next) return stopNotice();
+            if (!hasNew || document.hasFocus()) return;
+            stopNotice();
+            originalTitle = document.title;
+            const title = [...`【🔔 新消息】${originalTitle}　`];
+            document.title = title.join("");
+            timer = setInterval(() => {
+                title.push(...title.splice(0, 1));
+                document.title = title.join("");
+            }, 300);
+        };
+        addEventListener("focus", stopNotice);
+
         const card = $(".user-card .user-stat");
         const last = card?.querySelector(".stat-block:first-child > :last-child");
         if (!card || !last) return;
@@ -49,7 +72,11 @@ export default {
         };
         const upAll = c => { up(atEl, "/notification#/atMe", "#at-sign", "我", c.atMe); up(msgEl, "/notification#/message?mode=list", "#envelope-one", "私信", c.message); up(last, "/notification#/reply", "#remind-6nce9p47", "回复", c.reply); };
 
-        bn.on(({ data }) => { if (data?.type === "unreadCount" && data.counts) upAll(data.counts); });
+        bn.on(({ data }) => {
+            if (data?.type !== "unreadCount" || !data.counts) return;
+            upAll(data.counts);
+            updateNotice(data.counts);
+        });
         bn.send({ type: "unreadCount", counts: ctx.user?.unViewedCount || {}, timestamp: Date.now() });
         bn.task(async () => {
             const d = await net.get("/api/notification/unread-count");

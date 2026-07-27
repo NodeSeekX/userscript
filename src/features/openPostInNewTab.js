@@ -20,5 +20,17 @@ export default {
                 };
             };
         } catch { }
+    },
+    watch: ctx => {
+        if (!ctx.store.get("open_post_in_new_tab.enabled", false)) return;
+        return {
+            sel: '.post-list-item .post-title a',
+            fn: els => els.forEach(a => {
+                if (a.target !== "_blank") {
+                    a.target = "_blank";
+                }
+            }),
+            opts: { debounce: 80 }
+        };
     }
 };

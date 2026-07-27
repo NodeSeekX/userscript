@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NodeSeek X
 // @namespace    http://www.nodeseek.com/
-// @version      1.1.0
+// @version      1.1.1
 // @description  用于增强 NodeSeek/DeepFlood 论坛体验的用户脚本：提供自动签到、下拉加载、快速评论、内容过滤、等级标记、浏览历史、Callout 渲染、图片预览、快捷键等功能，并带可视化设置面板可自由开关配置。
 // @author       dabao
 // @match        *://www.nodeseek.com/*
@@ -15,6 +15,7 @@
 // @grant        GM_openInTab
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
+// @connect      api.nodeimage.com
 // @run-at       document-idle
 // @license      GPL-3.0
 // @supportURL   https://www.nodeseek.com/post-36263-1
@@ -186,6 +187,60 @@
                 });
             };
 
+            const _showCard = (anchor, uid) => {
+                const hc = unsafeWindow.hoverCard;
+                if (!hc) return;
+                if (!hc.$el || !document.body.contains(hc.$el)) {
+                    hc.setIsHoverCard(true);
+                    hc.$mount(document.body.appendChild(document.createElement("div")));
+                }
+                const { left, top } = anchor.getBoundingClientRect();
+                Object.assign(hc, { left, top });
+                hc.loadUser(uid);
+                hc.show();
+            };
+
+            const bindPostList = (doc) => {
+                doc.querySelectorAll(".post-list .avatar-normal").forEach(n => {
+                    const uid = +n.dataset.uid;
+                    if (!isNaN(uid)) n.addEventListener("click", e => { e.preventDefault(); _showCard(n, uid); });
+                });
+            };
+
+            const bindCommentList = (doc, cfg) => {
+                if (!cfg?.postData?.comments) return;
+                doc.querySelectorAll(".content-item").forEach((item, i) => {
+                    const uid = cfg.postData.comments[i]?.poster?.uid;
+                    const avatar = item.querySelector(".avatar-normal");
+                    if (uid && avatar) avatar.addEventListener("click", e => { e.preventDefault(); _showCard(avatar, uid); });
+                });
+            };
+
+            const syncCommentData = (doc) => {
+                const json = doc.getElementById("temp-script")?.textContent;
+                if (!json) return null;
+                try {
+                    const cfg = JSON.parse(decodeURIComponent(atob(json).split("").map(c => "%" + c.charCodeAt(0).toString(16).padStart(2, "0")).join("")));
+                    if (cfg?.postData?.comments) ctx.uw.__config__.postData.comments.push(...cfg.postData.comments);
+                    return cfg;
+                } catch {
+                    return null;
+                }
+            };
+
+            const mountCommentVueComponents = () => {
+                const vue = $(".comment-menu")?.__vue__;
+                if (!vue) return;
+                $$(".content-item").forEach((item, index) => {
+                    const mp = $(".comment-menu-mount", item);
+                    if (mp) {
+                        const inst = new vue.$root.constructor(vue.$options);
+                        inst.setIndex(index);
+                        inst.$mount(mp);
+                    }
+                });
+            };
+
             const load = async () => {
                 if (busy) return;
                 const atBottom = document.documentElement.scrollHeight <= innerHeight + scrollY + profile.threshold;
@@ -197,27 +252,20 @@
                 try {
                     const html = await net.get(nextUrl, {}, "text");
                     const doc = new DOMParser().parseFromString(html, "text/html");
-                    blockByLevel(doc);
 
-                    // 评论数据同步
-                    if (ctx.isPost) {
-                        const json = doc.getElementById("temp-script")?.textContent;
-                        if (json) try {
-                            const cfg = JSON.parse(decodeURIComponent(atob(json).split("").map(c => "%" + c.charCodeAt(0).toString(16).padStart(2, "0")).join("")));
-                            if (cfg?.postData?.comments) ctx.uw.__config__.postData.comments.push(...cfg.postData.comments);
-                        } catch { }
+                    if (ctx.isList) {
+                        blockByLevel(doc);
+                        bindPostList(doc);
+                    } else if (ctx.isPost) {
+                        const cfg = syncCommentData(doc);
+                        bindCommentList(doc, cfg);
                     }
 
                     const src = doc.querySelector(profile.list), dst = document.querySelector(profile.list);
                     if (src && dst) dst.append(...src.children);
 
-                    // 渲染新加载评论的 Vue 组件
                     if (ctx.isPost) {
-                        const vue = $(".comment-menu")?.__vue__;
-                        if (vue) $$(".content-item").forEach((item, index) => {
-                            const mp = $(".comment-menu-mount", item);
-                            if (mp) { const inst = new vue.$root.constructor(vue.$options); inst.setIndex(index); inst.$mount(mp); }
-                        });
+                        mountCommentVueComponents();
                     }
 
                     [profile.pagerTop, profile.pagerBot].forEach(sel => {
@@ -1051,181 +1099,257 @@
 
     // 图床上传模块 (NodeSeek 编辑器增强)
 
-    // 🌐 底层跨域网络请求封装
-    const api = (url, data, h = {}) => new Promise((res, rej) => GM_xmlhttpRequest({
-        method: 'POST',
-        url,
-        headers: h,
-        data,
-        onload: r => {
-            try {
-                res(JSON.parse(r.responseText));
-            } catch (e) {
-                rej(new Error(`解析响应失败: ${r.responseText}`));
-            }
-        },
-        onerror: rej
-    }));
+    let ctx, pendingLogin = false, lastSyncTime = 0, tokenRequest = null;
+    const KEY = "image_upload", NODE = "NodeImage", API = "https://api.nodeimage.com", COOLDOWN = 5 * 60 * 1000;
+    const NAMES = { NodeImage: "NodeImage", Chevereto: "Chevereto", LskyPro: "LskyPro", EasyImages: "EasyImages", Telegraph: "Telegraph", Telegraph2: "Telegraph v2" };
+    const key = k => `${KEY}.${k}`;
+    const get = (k, d = "") => ctx.store.get(key(k), d);
+    const set = (k, v) => ctx.store.set(key(k), v);
+    const md = (file, url) => `![${file.name || "image"}](${url})`;
+    const imgs = items => Array.from(items || []).filter(i => /image\//.test(i.type || i.kind)).map(i => i.getAsFile ? i.getAsFile() : i);
 
-    const getFd = (k, f, ex = {}) => {
-        let d = new FormData();
-        d.append(k, f);
-        Object.entries(ex).forEach(([key, val]) => d.append(key, val));
-        return d;
+    const fd = (name, file, extra = {}) => {
+        const data = new FormData();
+        data.append(name, file);
+        Object.entries(extra).forEach(([k, v]) => data.append(k, v));
+        return data;
     };
 
-    const getImg = items => Array.from(items || []).filter(i => /image\//.test(i.type || i.kind)).map(i => i.getAsFile ? i.getAsFile() : i);
+    const log = (msg, color = "") => {
+        const box = document.getElementById("ex-log") || document.querySelector(".mde-toolbar")?.appendChild(Object.assign(document.createElement("div"), { id: "ex-log" }));
+        if (!box) return;
+        box.textContent = "";
+        if (msg) {
+            const span = Object.assign(document.createElement("span"), { textContent: msg });
+            span.style.cssText = `color:${color};margin-left:10px`;
+            box.appendChild(span);
+        }
+    };
 
-    let uploadFn = null;
+    const hostName = () => NAMES[get("active", NODE)] || get("active", NODE);
+    const updatePicTitles = () => document.querySelectorAll(".i-icon-pic.t-hj").forEach(el => { el.title = hostName(); });
+
+    const request = ({ method = "POST", url, data = null, headers = {}, withCredentials = false, responseType }) => new Promise((resolve, reject) => GM_xmlhttpRequest({
+        method, url, data, headers, withCredentials, responseType,
+        onload: r => {
+            try {
+                const body = responseType === "json" ? r.response : JSON.parse(r.responseText);
+                r.status >= 200 && r.status < 300 ? resolve(body) : reject(Object.assign(new Error(`HTTP ${r.status}`), { status: r.status, response: body }));
+            } catch { reject(new Error(`解析响应失败: ${r.responseText}`)); }
+        },
+        onerror: reject
+    }));
+
+    const nodeToken = async () => {
+        try {
+            const r = await request({ method: "GET", url: `${API}/api/user/api-key`, headers: { Accept: "application/json" }, withCredentials: true, responseType: "json" });
+            return { token: r?.api_key || null, status: r?.api_key ? "ok" : "error" };
+        } catch (e) {
+            return { token: null, status: [401, 403].includes(e.status) ? "not_logged_in" : "error" };
+        }
+    };
+
+    const requestNodeToken = () => tokenRequest ||= nodeToken().finally(() => { tokenRequest = null; });
+
+    const saveToken = (token, notify = false) => {
+        set("token", token);
+        log("Token 获取成功", "green");
+        setTimeout(() => log(""), 2000);
+        notify && ctx.ui?.success?.("NodeImage Token 自动获取成功！");
+        return token;
+    };
+
+    const ensureToken = async () => {
+        const token = get("token", "");
+        if (token) return token;
+
+        log("正在获取 Token...", "#4D82D6");
+        const r = await requestNodeToken();
+        if (r.token) return saveToken(r.token);
+        if (r.status === "not_logged_in") {
+            pendingLogin = true;
+            log("未登录，即将打开登录页...", "#D6A14D");
+            setTimeout(() => GM_openInTab("https://www.nodeimage.com", { active: true }), 1500);
+        } else log("Token 获取失败，请检查 network", "red");
+        return null;
+    };
+
+    const syncNodeToken = async () => {
+        if (get("active", NODE) !== NODE) return;
+        const token = get("token", "");
+        if (!token && !pendingLogin) return;
+        if (token && Date.now() - lastSyncTime < COOLDOWN) return;
+        lastSyncTime = Date.now();
+
+        if (!token) log("正在获取 Token...", "#4D82D6");
+        const r = await requestNodeToken();
+        if (r.token && r.token !== token) {
+            pendingLogin = false;
+            saveToken(r.token, true);
+        } else if (!r.token && token) {
+            set("token", "");
+            ctx.ui?.warning?.("NodeImage Token 已失效，已清除本地缓存。");
+        }
+    };
+
+    const headers = () => {
+        try {
+            const raw = get("headers", "");
+            return raw ? JSON.parse(raw) : {};
+        } catch (e) {
+            console.error("[NSX-IMG] 解析 Headers 失败:", e);
+            return {};
+        }
+    };
+
+    const providers = {
+        Telegraph: {
+            build: (f, e) => ({ url: `${e.base}/upload`, data: fd("file", f), headers: e.headers }),
+            parse: (r, e) => `${e.base}${r[0].src.startsWith("/") ? "" : "/"}${r[0].src}`
+        },
+        Telegraph2: {
+            build: (f, e) => ({ url: `${e.base}/upload`, data: fd("file", f), headers: e.headers }),
+            parse: r => r.data
+        },
+        LskyPro: {
+            build: (f, e) => ({ url: `${e.base}/api/v1/upload`, data: fd("file", f), headers: { Accept: "application/json", Authorization: `Bearer ${e.token}`, ...e.headers } }),
+            parse: r => r.data.links.url
+        },
+        Chevereto: {
+            build: (f, e) => ({ url: `${e.base}/api/1/upload`, data: fd("source", f), headers: { Accept: "application/json", "X-API-Key": e.token, ...e.headers } }),
+            parse: r => r.image.url
+        },
+        EasyImages: {
+            build: (f, e) => {
+                const ok = !!e.token;
+                return { url: `${e.base}${ok ? "/api/index.php" : "/app/upload.php"}`, data: fd(ok ? "image" : "file", f, ok ? { token: e.token } : { sign: Math.floor(Date.now() / 1000) }), headers: e.headers };
+            },
+            parse: r => r.url
+        },
+        NodeImage: {
+            build: (f, e) => ({ url: `${API}/api/upload`, data: fd("image", f), headers: { Accept: "application/json", "X-API-Key": e.token, ...e.headers } }),
+            parse: r => r.links.direct
+        }
+    };
+
+    const special = {
+        [NODE]: {
+            before: async env => env.token || (env.token = await ensureToken()),
+            retry: async (e, env) => {
+                if (![401, 403].includes(e.status)) return false;
+                const r = await requestNodeToken();
+                if (!r.token) return false;
+                env.token = r.token;
+                set("token", r.token);
+                return true;
+            },
+            sync: syncNodeToken
+        }
+    };
+
+    const insert = text => {
+        const cm = document.querySelector(".CodeMirror")?.CodeMirror;
+        if (cm) cm.replaceRange(`\n${text}\n`, cm.getCursor());
+    };
+
+    const upload = async files => {
+        if (!files.length) return;
+        const env = { active: get("active", NODE), base: get("url", "https://example.com").replace(/\/$/, ""), token: get("token", ""), headers: headers() };
+        const provider = providers[env.active];
+        const ext = special[env.active];
+        if (!provider) return;
+        updatePicTitles();
+        if (ext?.before && !(await ext.before(env))) return;
+
+        log("正在上传", "green");
+        ctx.ui?.info?.(`开始并发上传 ${files.length} 张图片...`);
+
+        const results = [];
+        let ok = 0, err = 0;
+
+        const send = async file => {
+            const res = await request(provider.build(file, env));
+            return md(file, provider.parse(res, env));
+        };
+
+        await Promise.all(files.map(async (file, index) => {
+            try {
+                results.push({ index, text: await send(file) });
+                ok++;
+                log(`已完成 ${ok + err}/${files.length}`, "green");
+            } catch (e) {
+                if (await ext?.retry?.(e, env)) {
+                    try {
+                        results.push({ index, text: await send(file) });
+                        ok++;
+                        log(`已完成 ${ok + err}/${files.length}`, "green");
+                        return;
+                    } catch (e2) { console.error("[NSX-IMG] 重试上传失败", e2); }
+                }
+                err++;
+                log(`已完成 ${ok + err}/${files.length}，${err} 张失败`, "red");
+                console.error("[NSX-IMG] 上传失败", e);
+            }
+        }));
+
+        if (results.length) {
+            results.sort((a, b) => a.index - b.index);
+            insert(results.map(r => r.text).join("\n"));
+        }
+
+        if (ctx.ui?.toast) {
+            if (!err) ctx.ui.success(`全部图片上传成功！(共 ${ok} 张)`);
+            else if (ok) ctx.ui.warning(`图片上传完成: ${ok} 张成功, ${err} 张失败。`);
+            else ctx.ui.error("图片上传全部失败！");
+        }
+    };
+
+    const pick = () => {
+        updatePicTitles();
+        const input = Object.assign(document.createElement("input"), { type: "file", multiple: true, accept: "image/*", onchange: e => upload(imgs(e.target.files)) });
+        input.click();
+    };
 
     const imageUpload = {
         id: "imageUpload",
         order: 250,
-        cfg: {
-            image_upload: {
-                enabled: false,
-                active: "Chevereto",
-                url: "",
-                token: "",
-                headers: ""
-            }
-        },
-        meta: {
-            image_upload: {
-                label: "图床上传",
-                group: "图床设置",
-                fields: {
-                    active: {
-                        type: "SELECT",
-                        label: "当前图床",
-                        options: [
-                            { text: "Chevereto", value: "Chevereto" },
-                            { text: "LskyPro", value: "LskyPro" },
-                            { text: "EasyImages", value: "EasyImages" },
-                            { text: "Telegraph (含自建)", value: "Telegraph" },
-                            { text: "Telegraph v2", value: "Telegraph2" }
-                        ]
-                    },
-                    url: { type: "TEXT", label: "图床 URL", placeholder: "https://example.com", desc: "图床服务的基础 URL（例如：https://example.com）" },
-                    token: { type: "TEXT", label: "API Token", placeholder: "chv_q2L_... 或留空", desc: "API Token 或 Key，Telegraph 可不填" },
-                    headers: { type: "TEXTAREA", label: "自定义 Headers", placeholder: "{\n  \"Authorization\": \"Basic YWRtaW46ODMwNTA2NjM=\"\n}", desc: "可选，标准 JSON 格式，例如：{\"Authorization\": \"Basic ...\"}" }
-                }
-            }
-        },
-        match: ctx => ctx.store.get("image_upload.enabled", true),
-        init(ctx) {
-            // ⚡ 并发上传引擎
-            const upload = async (files) => {
-                const active = ctx.store.get("image_upload.active", "Chevereto");
-                const baseUrl = ctx.store.get("image_upload.url", "https://example.com").replace(/\/$/, "");
-                const token = ctx.store.get("image_upload.token", "");
-                let extraHeaders = {};
-                try {
-                    const rawHeaders = ctx.store.get("image_upload.headers", "");
-                    if (rawHeaders) {
-                        extraHeaders = JSON.parse(rawHeaders);
-                    }
-                } catch (e) {
-                    console.error("[NSX-IMG] 解析自定义 Headers 失败:", e);
-                }
-
-                // 🔀 图床策略路由 (支持自定义 Header 合并)
-                const HOSTS = {
-                    Telegraph: f => ({ u: `${baseUrl}/upload`, d: getFd('file', f), h: { ...extraHeaders }, p: r => `![${f.name || 'image'}](${baseUrl}${r[0].src.startsWith('/') ? '' : '/'}${r[0].src})` }),
-                    Telegraph2: f => ({ u: `${baseUrl}/upload`, d: getFd('file', f), h: { ...extraHeaders }, p: r => `![${f.name || 'image'}](${r.data})` }),
-                    LskyPro: f => ({ u: `${baseUrl}/api/v1/upload`, d: getFd('file', f), h: { Accept: 'application/json', Authorization: `Bearer ${token}`, ...extraHeaders }, p: r => `![${f.name || 'image'}](${r.data.links.url})` }),
-                    Chevereto: f => ({ u: `${baseUrl}/api/1/upload`, d: getFd('source', f), h: { Accept: 'application/json', 'X-API-Key': token, ...extraHeaders }, p: r => `![${f.name || 'image'}](${r.image.url})` }),
-                    EasyImages: f => ({ u: `${baseUrl}${token ? '/api/index.php' : '/app/upload.php'}`, d: getFd(token ? 'image' : 'file', f, token ? { token: token } : { sign: Math.floor(Date.now() / 1000) }), h: { ...extraHeaders }, p: r => `![${f.name || 'image'}](${r.url})` })
-                };
-
-                const S = HOSTS[active];
-                if (!S || !files.length) return;
-                const cm = document.querySelector('.CodeMirror')?.CodeMirror;
-                console.log(`[NSX-IMG] 🚀 并发上传 ${files.length} 张图片...`);
-
-                const log = (msg, col = '') => {
-                    let b = document.getElementById('ex-log') || document.querySelector('.mde-toolbar')?.appendChild(Object.assign(document.createElement('div'), { id: 'ex-log' }));
-                    if (b) b.innerHTML = `<span style="color:${col}; margin-left:10px">${msg}</span>`;
-                };
-
-                log('正在上传', 'green');
-                if (ctx.ui?.info) {
-                    ctx.ui.info(`开始并发上传 ${files.length} 张图片...`);
-                }
-
-                let successCount = 0;
-                let failCount = 0;
-
-                await Promise.all(files.map(async f => {
-                    try {
-                        let { u, d, h, p } = S(f), res = await api(u, d, h);
-                        if (cm) cm.replaceRange(`\n${p(res)}\n`, cm.getCursor());
-                        successCount++;
-                        log('上传成功', 'green');
-                    } catch (e) {
-                        failCount++;
-                        log('上传失败', 'red');
-                        console.error('[NSX-IMG] ❌ 上传失败', e);
-                    }
-                }));
-
-                if (ctx.ui?.toast) {
-                    if (failCount === 0) {
-                        ctx.ui.success(`全部图片上传成功！(共 ${successCount} 张)`);
-                    } else if (successCount > 0) {
-                        ctx.ui.warning(`图片上传完成: ${successCount} 张成功, ${failCount} 张失败。`);
-                    } else {
-                        ctx.ui.error(`图片上传全部失败！`);
-                    }
-                }
-            };
-
-            uploadFn = upload;
-
-            // 1. 全局事件委托劫持粘贴 (粘贴拦截)
-            document.addEventListener('paste', e => {
-                if (!e.target.closest('.CodeMirror') && !e.target.closest('.mde-toolbar')) return;
-                let f = getImg((e.clipboardData || e.originalEvent.clipboardData).items);
-                if (f.length) {
-                    e.preventDefault();
-                    upload(f);
-                }
+        cfg: { [KEY]: { enabled: false, active: NODE, url: "", token: "", headers: "" } },
+        meta: { [KEY]: { label: "图床上传", group: "图床设置", fields: {
+            active: { type: "SELECT", label: "当前图床", options: [
+                ["NodeImage (论坛官方)", NODE], ["Chevereto", "Chevereto"], ["LskyPro", "LskyPro"], ["EasyImages", "EasyImages"], ["Telegraph (含自建)", "Telegraph"], ["Telegraph v2", "Telegraph2"]
+            ].map(([text, value]) => ({ text, value })) },
+            url: { type: "TEXT", label: "图床 URL", placeholder: "https://example.com", desc: "图床服务的基础 URL（例如：https://example.com）,NodeImage 可留空" },
+            token: { type: "TEXT", label: "API Token", placeholder: "chv_q2L_... 或留空", desc: "API Token 或 Key，Telegraph 可不填" },
+            headers: { type: "TEXTAREA", label: "自定义 Headers", placeholder: "{\n  \"Authorization\": \"Basic YWR...\"\n}", desc: "可选，标准 JSON 格式，例如：{\"Authorization\": \"Basic ...\"}" }
+        } } },
+        match: c => c.store.get(key("enabled"), false),
+        init(c) {
+            ctx = c;
+            updatePicTitles();
+            document.addEventListener("paste", e => {
+                if (!e.target.closest(".CodeMirror,.mde-toolbar")) return;
+                const files = imgs((e.clipboardData || e.originalEvent.clipboardData).items);
+                files.length && (e.preventDefault(), upload(files));
             });
-
-            // 2. 全局事件委托劫持拖拽 (拖拽拦截)
-            document.addEventListener('dragover', e => {
-                if (e.target.closest('.CodeMirror')) {
-                    e.preventDefault();
-                }
+            document.addEventListener("dragover", e => e.target.closest(".CodeMirror") && e.preventDefault());
+            document.addEventListener("drop", e => {
+                if (!e.target.closest(".CodeMirror")) return;
+                e.preventDefault();
+                upload(imgs(e.dataTransfer.files));
             });
-            document.addEventListener('drop', e => {
-                if (e.target.closest('.CodeMirror')) {
-                    e.preventDefault();
-                    let f = getImg(e.dataTransfer.files);
-                    if (f.length) {
-                        upload(f);
-                    }
-                }
+            window.addEventListener("focus", () => {
+                updatePicTitles();
+                special[get("active", NODE)]?.sync?.();
             });
         },
-        watch: ctx => ({
-            sel: '.i-icon-pic[title="图片"]:not(.t-hj)',
-            fn: els => els.forEach(ob => {
-                let nb = ob.cloneNode(true);
-                nb.classList.add('t-hj');
-                ob.replaceWith(nb);
-                nb.onclick = () => {
-                    let i = document.createElement('input');
-                    i.type = 'file';
-                    i.multiple = true;
-                    i.accept = 'image/*';
-                    i.onchange = e => {
-                        if (uploadFn) {
-                            uploadFn(getImg(e.target.files));
-                        }
-                    };
-                    i.click();
-                };
+        watch: () => ({
+            sel: '.mde-toolbar .i-icon-pic:not(.t-hj)',
+            fn: els => els.forEach(el => {
+                const btn = el.cloneNode(true);
+                btn.classList.add("t-hj");
+                btn.title = hostName();
+                el.replaceWith(btn);
+                btn.onclick = pick;
             })
         })
     };
@@ -1267,7 +1391,7 @@
 
     // 等级标签
 
-    const CSS$3 = `.role-tag.user-level{color:#fafafa}.user-lv0{background:#c7c2c2;border-color:#c7c2c2}.user-lv1{background:#ffb74d;border-color:#ffb74d}.user-lv2{background:#ff9400;border-color:#ff9400}.user-lv3{background:#ff5252;border-color:#ff5252}.user-lv4{background:#e53935;border-color:#e53935}.user-lv5{background:#ab47bc;border-color:#ab47bc}.user-lv6{background:#8e24aa;border-color:#8e24aa}.user-lv7{background:#42a5f5;border-color:#42a5f5}.user-lv8{background:#1e88e5;border-color:#1e88e5}.user-lv9{background:#66bb6a;border-color:#66bb6a}.user-lv10{background:#2e7d32;border-color:#2e7d32}.user-lv11{background:#ffca28;border-color:#ffca28}.user-lv12{background:#ffb300;border-color:#ffb300}.user-lv13{background:#b388ff;border-color:#b388ff}.user-lv14{background:#7c4dff;border-color:#7c4dff}.user-lv15{background:#000;border-color:#000;color:#ffd700}`;
+    const CSS$3 = `.role-tag.user-level{background:#000;border-color:#000;color:#ffd700}.role-tag.user-lv0{background:#c7c2c2;border-color:#c7c2c2;color:#fafafa}.role-tag.user-lv1{background:#ffb74d;border-color:#ffb74d;color:#fafafa}.role-tag.user-lv2{background:#ff9400;border-color:#ff9400;color:#fafafa}.role-tag.user-lv3{background:#ff5252;border-color:#ff5252;color:#fafafa}.role-tag.user-lv4{background:#e53935;border-color:#e53935;color:#fafafa}.role-tag.user-lv5{background:#ab47bc;border-color:#ab47bc;color:#fafafa}.role-tag.user-lv6{background:#8e24aa;border-color:#8e24aa;color:#fafafa}.role-tag.user-lv7{background:#42a5f5;border-color:#42a5f5;color:#fafafa}.role-tag.user-lv8{background:#1e88e5;border-color:#1e88e5;color:#fafafa}.role-tag.user-lv9{background:#66bb6a;border-color:#66bb6a;color:#fafafa}.role-tag.user-lv10{background:#2e7d32;border-color:#2e7d32;color:#fafafa}.role-tag.user-lv11{background:#ffca28;border-color:#ffca28;color:#fafafa}.role-tag.user-lv12{background:#ffb300;border-color:#ffb300;color:#fafafa}.role-tag.user-lv13{background:#b388ff;border-color:#b388ff;color:#fafafa}.role-tag.user-lv14{background:#7c4dff;border-color:#7c4dff;color:#fafafa}.role-tag.user-lv15{background:#000;border-color:#000;color:#ffd700}`;
 
     const levelTag = {
         id: "levelTag",
@@ -1537,22 +1661,22 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
                 const logs = [];
                 let modified = false;
 
-                // 1. 短链解析
+                // 1. 去跳板
+                const j = unwrapJump(u);
+                if (j.logs.length) { u = j.u; logs.push(...j.logs); modified = true; }
+
+                if (!a.isConnected || a.getAttribute('href') !== href) return;
+
+                // 2. 短链解析
                 if (shortHosts.has(u.hostname.toLowerCase())) {
                     a.classList.add('nsp-resolving');
                     const r = await resolveShort(u.toString());
                     a.classList.remove('nsp-resolving');
                     if (r.ok) {
                         const res = tryURL(r.url);
-                        if (res) { u = res; logs.push(`🔍 短链: ${new URL(href, location.href).hostname}`); modified = true; }
+                        if (res) { u = res; logs.push(`🔍 短链: ${u.hostname}`); modified = true; }
                     }
                 }
-
-                // 2. 去跳板
-                const j = unwrapJump(u);
-                if (j.logs.length) { u = j.u; logs.push(...j.logs); modified = true; }
-
-                if (!a.isConnected || a.getAttribute('href') !== href) return;
 
                 // 3. DSL 规则净化
                 const p = purifyUrl(u.toString(), activeRules);
@@ -1628,7 +1752,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         init(ctx) {
             ctx.uw; const code = ctx.site?.code || "ns";
             const ids = [];
-            const txt = (m, v) => `${m.text}: ${m.states[v].s1} ${m.states[v].s2}`;
+            const txt = (m, v) => `${m.states[v].s1} ${m.text}: ${m.states[v].s2}`;
 
 
             const regMenus = () => {
@@ -1725,7 +1849,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
                     }
                     else if (f.type === "COLOR") {
                         const inpWrap = el("div", "layui-input-inline", blk); inpWrap.style.width = "100px";
-                        inp = el("input", "layui-input", inpWrap); inp.type = "text"; inp.name = path; inp.value = val ?? ""; inp.readOnly = true;
+                        inp = el("input", "layui-input", inpWrap); inp.type = "text"; inp.name = path; inp.setAttribute("value", val ?? ""); inp.readOnly = true;
                         inp.style.cssText = `background:${val || "#fff"};cursor:pointer;color:transparent`;
                         const cpWrap = el("div", "layui-inline", blk); cpWrap.style.left = "-11px";
                         const wrap = el("div", "", cpWrap);
@@ -1862,7 +1986,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
             const menus = [
                 { name: "sign_in", cb: switchState, text: "自动签到", states: [{ s1: "❌", s2: "关闭" }, { s1: "🎲", s2: "随机🍗" }, { s1: "📌", s2: "5个🍗" }] },
                 { name: "re_sign", cb: reSign, text: "🔂 重试签到", states: [] },
-                { name: "loading_post", cb: switchState, text: "下拉加载翻页", states: [{ s1: "❌", s2: "关闭" }, { s1: "✅", s2: "开启" }] },
+                { name: "loading_post", cb: switchState, text: "下拉翻页", states: [{ s1: "❌", s2: "关闭" }, { s1: "✅", s2: "开启" }] },
                 { name: "open_post_in_new_tab", cb: (n, s) => { switchState(n, s); ctx.ui.layer.msg("刷新页面生效"); }, text: "新标签页打开帖子", states: [{ s1: "❌", s2: "关闭" }, { s1: "✅", s2: "开启" }] },
                 { name: "advanced_settings", cb: advSettings, text: "⚙️ 高级设置", states: [] },
                 { name: "feedback", cb: () => GM_openInTab("https://greasyfork.org/zh-CN/scripts/479426/feedback", { active: true, insert: true, setParent: true }), text: "💬 反馈 & 建议", states: [] }
@@ -1899,6 +2023,18 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
                     };
                 };
             } catch { }
+        },
+        watch: ctx => {
+            if (!ctx.store.get("open_post_in_new_tab.enabled", false)) return;
+            return {
+                sel: '.post-list-item .post-title a',
+                fn: els => els.forEach(a => {
+                    if (a.target !== "_blank") {
+                        a.target = "_blank";
+                    }
+                }),
+                opts: { debounce: 80 }
+            };
         }
     };
 
@@ -2093,6 +2229,29 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         match: ctx => ctx.loggedIn && (ctx.isPost || ctx.isList) && ctx.store.get("user_card_ext.enabled", true),
         async init(ctx) {
             const bn = new Broadcast("nsx_notify");
+            let unread = -1, timer = 0, originalTitle = "";
+            const stopNotice = () => {
+                if (!timer) return;
+                clearInterval(timer);
+                timer = 0;
+                document.title = originalTitle;
+            };
+            const updateNotice = counts => {
+                const next = +counts.all || 0, hasNew = unread >= 0 && next > unread;
+                unread = next;
+                if (!next) return stopNotice();
+                if (!hasNew || document.hasFocus()) return;
+                stopNotice();
+                originalTitle = document.title;
+                const title = [...`【🔔 新消息】${originalTitle}　`];
+                document.title = title.join("");
+                timer = setInterval(() => {
+                    title.push(...title.splice(0, 1));
+                    document.title = title.join("");
+                }, 300);
+            };
+            addEventListener("focus", stopNotice);
+
             const card = $(".user-card .user-stat");
             const last = card?.querySelector(".stat-block:first-child > :last-child");
             if (!card || !last) return;
@@ -2113,7 +2272,11 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
             };
             const upAll = c => { up(atEl, "/notification#/atMe", "#at-sign", "我", c.atMe); up(msgEl, "/notification#/message?mode=list", "#envelope-one", "私信", c.message); up(last, "/notification#/reply", "#remind-6nce9p47", "回复", c.reply); };
 
-            bn.on(({ data }) => { if (data?.type === "unreadCount" && data.counts) upAll(data.counts); });
+            bn.on(({ data }) => {
+                if (data?.type !== "unreadCount" || !data.counts) return;
+                upAll(data.counts);
+                updateNotice(data.counts);
+            });
             bn.send({ type: "unreadCount", counts: ctx.user?.unViewedCount || {}, timestamp: Date.now() });
             bn.task(async () => {
                 const d = await net.get("/api/notification/unread-count");

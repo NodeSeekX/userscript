@@ -12,7 +12,7 @@ export default {
     init(ctx) {
         const uw = ctx.uw, code = ctx.site?.code || "ns";
         const ids = [];
-        const txt = (m, v) => `${m.text}: ${m.states[v].s1} ${m.states[v].s2}`;
+        const txt = (m, v) => `${m.states[v].s1} ${m.text}: ${m.states[v].s2}`;
 
 
         const regMenus = () => {
@@ -109,7 +109,7 @@ export default {
                 }
                 else if (f.type === "COLOR") {
                     const inpWrap = el("div", "layui-input-inline", blk); inpWrap.style.width = "100px";
-                    inp = el("input", "layui-input", inpWrap); inp.type = "text"; inp.name = path; inp.value = val ?? ""; inp.readOnly = true;
+                    inp = el("input", "layui-input", inpWrap); inp.type = "text"; inp.name = path; inp.setAttribute("value", val ?? ""); inp.readOnly = true;
                     inp.style.cssText = `background:${val || "#fff"};cursor:pointer;color:transparent`;
                     const cpWrap = el("div", "layui-inline", blk); cpWrap.style.left = "-11px";
                     const wrap = el("div", "", cpWrap);
@@ -246,7 +246,7 @@ export default {
         const menus = [
             { name: "sign_in", cb: switchState, text: "自动签到", states: [{ s1: "❌", s2: "关闭" }, { s1: "🎲", s2: "随机🍗" }, { s1: "📌", s2: "5个🍗" }] },
             { name: "re_sign", cb: reSign, text: "🔂 重试签到", states: [] },
-            { name: "loading_post", cb: switchState, text: "下拉加载翻页", states: [{ s1: "❌", s2: "关闭" }, { s1: "✅", s2: "开启" }] },
+            { name: "loading_post", cb: switchState, text: "下拉翻页", states: [{ s1: "❌", s2: "关闭" }, { s1: "✅", s2: "开启" }] },
             { name: "open_post_in_new_tab", cb: (n, s) => { switchState(n, s); ctx.ui.layer.msg("刷新页面生效"); }, text: "新标签页打开帖子", states: [{ s1: "❌", s2: "关闭" }, { s1: "✅", s2: "开启" }] },
             { name: "advanced_settings", cb: advSettings, text: "⚙️ 高级设置", states: [] },
             { name: "feedback", cb: () => GM_openInTab("https://greasyfork.org/zh-CN/scripts/479426/feedback", { active: true, insert: true, setParent: true }), text: "💬 反馈 & 建议", states: [] }
