@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         NodeSeek X
 // @namespace    http://www.nodeseek.com/
-// @version      1.1.1
-// @description  用于增强 NodeSeek/DeepFlood 论坛体验的用户脚本：提供自动签到、下拉加载、快速评论、内容过滤、等级标记、浏览历史、Callout 渲染、图片预览、快捷键等功能，并带可视化设置面板可自由开关配置。
+// @version      1.1.2
+// @description  增强 NodeSeek/DeepFlood 论坛体验：支持自动签到、下拉加载、快捷评论、图床上传、内容过滤、链接净化、消息提醒、浏览历史等功能，并提供可视化设置面板。
 // @author       dabao
 // @match        *://www.nodeseek.com/*
 // @match        *://www.deepflood.com/*
@@ -1306,7 +1306,13 @@
 
     const pick = () => {
         updatePicTitles();
-        const input = Object.assign(document.createElement("input"), { type: "file", multiple: true, accept: "image/*", onchange: e => upload(imgs(e.target.files)) });
+        const input = Object.assign(document.createElement("input"), { type: "file", multiple: true, accept: "image/*" });
+        Object.assign(input.style, { position: 'absolute', top: '-9999px', opacity: 0, width: '1px', height: '1px' });
+        document.body.appendChild(input);
+        let timer;
+        const rm = () => { if (document.body.contains(input)) input.remove(); };
+        input.onchange = e => { clearTimeout(timer); upload(imgs(e.target.files)); rm(); };
+        window.addEventListener('focus', () => timer = setTimeout(rm, 500), { once: true });
         input.click();
     };
 

@@ -207,7 +207,13 @@ const upload = async files => {
 
 const pick = () => {
     updatePicTitles();
-    const input = Object.assign(document.createElement("input"), { type: "file", multiple: true, accept: "image/*", onchange: e => upload(imgs(e.target.files)) });
+    const input = Object.assign(document.createElement("input"), { type: "file", multiple: true, accept: "image/*" });
+    Object.assign(input.style, { position: 'absolute', top: '-9999px', opacity: 0, width: '1px', height: '1px' });
+    document.body.appendChild(input);
+    let timer;
+    const rm = () => { if (document.body.contains(input)) input.remove(); };
+    input.onchange = e => { clearTimeout(timer); upload(imgs(e.target.files)); rm(); };
+    window.addEventListener('focus', () => timer = setTimeout(rm, 500), { once: true });
     input.click();
 };
 
