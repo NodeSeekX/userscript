@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NodeSeek X
 // @namespace    http://www.nodeseek.com/
-// @version      1.1.2
+// @version      1.1.3
 // @description  增强 NodeSeek/DeepFlood 论坛体验：支持自动签到、下拉加载、快捷评论、图床上传、内容过滤、链接净化、消息提醒、浏览历史等功能，并提供可视化设置面板。
 // @author       dabao
 // @match        *://www.nodeseek.com/*

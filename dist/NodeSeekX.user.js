@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NodeSeek X
 // @namespace    http://www.nodeseek.com/
-// @version      1.1.2
+// @version      1.1.3
 // @description  增强 NodeSeek/DeepFlood 论坛体验：支持自动签到、下拉加载、快捷评论、图床上传、内容过滤、链接净化、消息提醒、浏览历史等功能，并提供可视化设置面板。
 // @author       dabao
 // @match        *://www.nodeseek.com/*
@@ -59,12 +59,14 @@
         document.head?.appendChild(el);
     }
 
-    function addScript(id, val) {
-        if (document.getElementById(id)) return;
+    function addScript(id, val, onload) {
+        if (document.getElementById(id)) return null;
         const el = document.createElement("script");
         el.id = id;
-        /^(https?:)?\/\//.test(val) ? (el.src = val) : (el.textContent = val);
+        if (/^(https?:)?\/\//.test(val)) { el.src = val; if (onload) el.onload = onload; }
+        else el.textContent = val;
         document.body?.appendChild(el);
+        return el;
     }
 
     const debounce = (fn, ms) => {
@@ -1102,11 +1104,19 @@
     let ctx, pendingLogin = false, lastSyncTime = 0, tokenRequest = null;
     const KEY = "image_upload", NODE = "NodeImage", API = "https://api.nodeimage.com", COOLDOWN = 5 * 60 * 1000;
     const NAMES = { NodeImage: "NodeImage", Chevereto: "Chevereto", LskyPro: "LskyPro", EasyImages: "EasyImages", Telegraph: "Telegraph", Telegraph2: "Telegraph v2" };
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
     const key = k => `${KEY}.${k}`;
     const get = (k, d = "") => ctx.store.get(key(k), d);
     const set = (k, v) => ctx.store.set(key(k), v);
     const md = (file, url) => `![${file.name || "image"}](${url})`;
-    const imgs = items => Array.from(items || []).filter(i => /image\//.test(i.type || i.kind)).map(i => i.getAsFile ? i.getAsFile() : i);
+    const imgs = items => Array.from(items || []).filter(i => /image\//.test(i.type || i.kind) || (isSafari && i.kind === "file" && !i.type)).map(i => i.getAsFile ? i.getAsFile() : i).filter(Boolean);
+
+    const normalize = f => f.type && f.size ? Promise.resolve(f) : new Promise((y, n) => {
+        const r = new FileReader(); r.onerror = n; r.readAsDataURL(f);
+        r.onload = e => { const i = new Image(); i.onerror = n; i.src = e.target.result;
+            i.onload = () => { const c = Object.assign(document.createElement("canvas"), { width: i.width, height: i.height }), x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height); x.drawImage(i, 0, 0); c.toBlob(b => b ? y(new File([b], (f.name || "img").replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" })) : n("blob"), "image/jpeg", 0.92); };
+        };
+    });
 
     const fd = (name, file, extra = {}) => {
         const data = new FormData();
@@ -1129,16 +1139,19 @@
     const hostName = () => NAMES[get("active", NODE)] || get("active", NODE);
     const updatePicTitles = () => document.querySelectorAll(".i-icon-pic.t-hj").forEach(el => { el.title = hostName(); });
 
-    const request = ({ method = "POST", url, data = null, headers = {}, withCredentials = false, responseType }) => new Promise((resolve, reject) => GM_xmlhttpRequest({
-        method, url, data, headers, withCredentials, responseType,
-        onload: r => {
-            try {
-                const body = responseType === "json" ? r.response : JSON.parse(r.responseText);
-                r.status >= 200 && r.status < 300 ? resolve(body) : reject(Object.assign(new Error(`HTTP ${r.status}`), { status: r.status, response: body }));
-            } catch { reject(new Error(`解析响应失败: ${r.responseText}`)); }
-        },
-        onerror: reject
-    }));
+    const request = ({ method = "POST", url, data = null, headers = {}, withCredentials = false, responseType }) => {
+        if ((m => m === "fetch" || m === "auto" && isSafari)(get("reqMode", "auto"))) return fetch(url, { method, body: data, credentials: "omit", headers }).then(r => r.ok ? r.json() : Promise.reject(Object.assign(new Error(`HTTP ${r.status}`), { status: r.status })));
+        return new Promise((resolve, reject) => GM_xmlhttpRequest({
+            method, url, data, headers, withCredentials, responseType,
+            onload: r => {
+                try {
+                    const body = responseType === "json" ? r.response : JSON.parse(r.responseText);
+                    r.status >= 200 && r.status < 300 ? resolve(body) : reject(Object.assign(new Error(`HTTP ${r.status}`), { status: r.status, response: body }));
+                } catch { reject(new Error(`解析响应失败: ${r.responseText}`)); }
+            },
+            onerror: reject
+        }));
+    };
 
     const nodeToken = async () => {
         try {
@@ -1177,6 +1190,7 @@
     const syncNodeToken = async () => {
         if (get("active", NODE) !== NODE) return;
         const token = get("token", "");
+        if (isSafari && token) return;
         if (!token && !pendingLogin) return;
         if (token && Date.now() - lastSyncTime < COOLDOWN) return;
         lastSyncTime = Date.now();
@@ -1252,6 +1266,8 @@
         if (cm) cm.replaceRange(`\n${text}\n`, cm.getCursor());
     };
 
+    const pool = (arr, fn, n = 3) => { let i = 0; const go = () => i < arr.length ? fn(arr[i], i++).then(go) : null; return Promise.all(Array.from({ length: Math.min(n, arr.length) }, go)); };
+
     const upload = async files => {
         if (!files.length) return;
         const env = { active: get("active", NODE), base: get("url", "https://example.com").replace(/\/$/, ""), token: get("token", ""), headers: headers() };
@@ -1272,7 +1288,7 @@
             return md(file, provider.parse(res, env));
         };
 
-        await Promise.all(files.map(async (file, index) => {
+        await pool(files, async (file, index) => {
             try {
                 results.push({ index, text: await send(file) });
                 ok++;
@@ -1290,7 +1306,7 @@
                 log(`已完成 ${ok + err}/${files.length}，${err} 张失败`, "red");
                 console.error("[NSX-IMG] 上传失败", e);
             }
-        }));
+        });
 
         if (results.length) {
             results.sort((a, b) => a.index - b.index);
@@ -1304,44 +1320,47 @@
         }
     };
 
+    const prep = files => (isSafari ? Promise.all(files.map(normalize)) : Promise.resolve(files)).then(upload).catch(e => (log(`处理失败: ${e.message}`, "red"), console.error("[NSX-IMG]", e)));
+
     const pick = () => {
         updatePicTitles();
-        const input = Object.assign(document.createElement("input"), { type: "file", multiple: true, accept: "image/*" });
-        Object.assign(input.style, { position: 'absolute', top: '-9999px', opacity: 0, width: '1px', height: '1px' });
-        document.body.appendChild(input);
-        let timer;
-        const rm = () => { if (document.body.contains(input)) input.remove(); };
-        input.onchange = e => { clearTimeout(timer); upload(imgs(e.target.files)); rm(); };
-        window.addEventListener('focus', () => timer = setTimeout(rm, 500), { once: true });
+        const input = Object.assign(document.createElement("input"), { type: "file", multiple: true, accept: "image/*", onchange: e => prep(imgs(e.target.files)) });
         input.click();
     };
 
     const imageUpload = {
         id: "imageUpload",
         order: 250,
-        cfg: { [KEY]: { enabled: false, active: NODE, url: "", token: "", headers: "" } },
-        meta: { [KEY]: { label: "图床上传", group: "图床设置", fields: {
-            active: { type: "SELECT", label: "当前图床", options: [
-                ["NodeImage (论坛官方)", NODE], ["Chevereto", "Chevereto"], ["LskyPro", "LskyPro"], ["EasyImages", "EasyImages"], ["Telegraph (含自建)", "Telegraph"], ["Telegraph v2", "Telegraph2"]
-            ].map(([text, value]) => ({ text, value })) },
-            url: { type: "TEXT", label: "图床 URL", placeholder: "https://example.com", desc: "图床服务的基础 URL（例如：https://example.com）,NodeImage 可留空" },
-            token: { type: "TEXT", label: "API Token", placeholder: "chv_q2L_... 或留空", desc: "API Token 或 Key，Telegraph 可不填" },
-            headers: { type: "TEXTAREA", label: "自定义 Headers", placeholder: "{\n  \"Authorization\": \"Basic YWR...\"\n}", desc: "可选，标准 JSON 格式，例如：{\"Authorization\": \"Basic ...\"}" }
-        } } },
+        cfg: { [KEY]: { enabled: false, active: NODE, url: "", token: "", headers: "", reqMode: "auto" } },
+        meta: {
+            [KEY]: {
+                label: "图床上传", group: "图床设置", fields: {
+                    active: {
+                        type: "SELECT", label: "当前图床", options: [
+                            ["NodeImage (论坛官方)", NODE], ["Chevereto", "Chevereto"], ["LskyPro", "LskyPro"], ["EasyImages", "EasyImages"], ["Telegraph (含自建)", "Telegraph"], ["Telegraph v2", "Telegraph2"]
+                        ].map(([text, value]) => ({ text, value }))
+                    },
+                    url: { type: "TEXT", label: "图床 URL", placeholder: "https://example.com", desc: "图床服务的基础 URL（例如：https://example.com）,NodeImage 可留空" },
+                    token: { type: "TEXT", label: "API Token", placeholder: "chv_q2L_... 或留空", desc: "API Token 或 Key，Telegraph 可不填" },
+                    headers: { type: "TEXTAREA", label: "自定义 Headers", placeholder: "{\n  \"Authorization\": \"Basic YWR...\"\n}", desc: "可选，标准 JSON 格式，例如：{\"Authorization\": \"Basic ...\"}" },
+                    reqMode: { type: "SELECT", label: "请求通道", options: [["自动 (Safari 使用 Fetch)", "auto"], ["Fetch API", "fetch"], ["GM_xmlhttpRequest", "gm"]].map(([text, value]) => ({ text, value })), desc: "Safari/iOS 建议使用 Fetch，其他浏览器建议 GM_xmlhttpRequest" }
+                }
+            }
+        },
         match: c => c.store.get(key("enabled"), false),
         init(c) {
             ctx = c;
             updatePicTitles();
             document.addEventListener("paste", e => {
                 if (!e.target.closest(".CodeMirror,.mde-toolbar")) return;
-                const files = imgs((e.clipboardData || e.originalEvent.clipboardData).items);
-                files.length && (e.preventDefault(), upload(files));
+                const files = imgs((e.clipboardData || e.originalEvent?.clipboardData)?.items);
+                files.length && (e.preventDefault(), prep(files));
             });
             document.addEventListener("dragover", e => e.target.closest(".CodeMirror") && e.preventDefault());
             document.addEventListener("drop", e => {
                 if (!e.target.closest(".CodeMirror")) return;
                 e.preventDefault();
-                upload(imgs(e.dataTransfer.files));
+                prep(imgs(e.dataTransfer.files));
             });
             window.addEventListener("focus", () => {
                 updatePicTitles();
@@ -2419,6 +2438,11 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         if (!ctx.ui.layer) {
             const timer = setInterval(() => { if (window.layui?.layer) { initUI(); clearInterval(timer); } }, 100);
             setTimeout(() => clearInterval(timer), 5000);
+        }
+
+        // vConsole（仅 debug 模式）
+        if (store.get("debug.enabled")) {
+            addScript("nsx-vconsole", "https://s4.zstatic.net/ajax/libs/vConsole/3.15.1/vconsole.min.js", () => new ctx.uw.VConsole());
         }
 
         // 启动所有模块

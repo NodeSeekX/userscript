@@ -92,6 +92,11 @@ export function start() {
         setTimeout(() => clearInterval(timer), 5000);
     }
 
+    // vConsole（仅 debug 模式）
+    if (store.get("debug.enabled")) {
+        addScript("nsx-vconsole", "https://s4.zstatic.net/ajax/libs/vConsole/3.15.1/vconsole.min.js", () => new ctx.uw.VConsole());
+    }
+
     // 启动所有模块
     boot(ctx);
 }

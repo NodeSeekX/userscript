@@ -32,12 +32,14 @@ export function addStyle(id, val) {
     document.head?.appendChild(el);
 }
 
-export function addScript(id, val) {
-    if (document.getElementById(id)) return;
+export function addScript(id, val, onload) {
+    if (document.getElementById(id)) return null;
     const el = document.createElement("script");
     el.id = id;
-    /^(https?:)?\/\//.test(val) ? (el.src = val) : (el.textContent = val);
+    if (/^(https?:)?\/\//.test(val)) { el.src = val; if (onload) el.onload = onload; }
+    else el.textContent = val;
     document.body?.appendChild(el);
+    return el;
 }
 
 export const debounce = (fn, ms) => {
