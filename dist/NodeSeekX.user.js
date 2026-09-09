@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NodeSeek X
 // @namespace    http://www.nodeseek.com/
-// @version      1.1.4
+// @version      1.1.5
 // @description  增强 NodeSeek/DeepFlood 论坛体验：支持自动签到、下拉加载、快捷评论、图床上传、内容过滤、链接净化、消息提醒、浏览历史等功能，并提供可视化设置面板。
 // @author       dabao
 // @match        *://www.nodeseek.com/*
@@ -392,160 +392,6 @@
         default: blockViewLevel
     }, Symbol.toStringTag, { value: 'Module' }));
 
-    // Callout 支持 + 编辑器插入菜单
-
-    const CSS_RENDER = `.post-content blockquote{border-left:none;border-radius:4px;margin:1em 0;box-shadow:inset 4px 0 0 0 rgba(0,0,0,.1)}.callout{--c:8,109,221;overflow:hidden;border-radius:4px;margin:1em 0;padding:12px 12px 12px 24px!important;box-shadow:inset 4px 0 0 0 rgba(var(--c),.5)}.callout.is-collapsible .callout-title{cursor:pointer}.callout-title{display:flex;gap:4px;color:rgb(var(--c));line-height:1.3;align-items:flex-start}.callout-content{overflow-x:auto}.callout-icon{flex:0 0 auto;display:flex;align-items:center}.callout-icon .svg-icon,.callout-fold .svg-icon{color:rgb(var(--c));height:18px;width:18px}.callout-title-inner{font-weight:600}.callout-fold{display:flex;align-items:center;padding-inline-end:8px}.callout-fold .svg-icon{transition:transform .1s}.callout-fold.is-collapsed .svg-icon{transform:rotate(-90deg)}.callout.is-collapsed .callout-content{display:none}.callout[data-callout="abstract"],.callout[data-callout="summary"],.callout[data-callout="tldr"]{--c:83,223,221}.callout[data-callout="info"],.callout[data-callout="todo"]{--c:8,109,221}.callout[data-callout="tip"],.callout[data-callout="hint"],.callout[data-callout="important"]{--c:83,223,221}.callout[data-callout="success"],.callout[data-callout="check"],.callout[data-callout="done"]{--c:68,207,110}.callout[data-callout="question"],.callout[data-callout="help"],.callout[data-callout="faq"]{--c:236,117,0}.callout[data-callout="warning"],.callout[data-callout="caution"],.callout[data-callout="attention"]{--c:236,117,0}.callout[data-callout="failure"],.callout[data-callout="fail"],.callout[data-callout="missing"]{--c:233,49,71}.callout[data-callout="danger"],.callout[data-callout="error"]{--c:233,49,71}.callout[data-callout="bug"]{--c:233,49,71}.callout[data-callout="example"]{--c:120,82,238}.callout[data-callout="quote"],.callout[data-callout="cite"]{--c:158,158,158}`;
-    const CSS_COLORFUL = `.callout{background:rgba(var(--c),.1)}`;
-    const CSS_EDITOR = `.callout-inserter-wrapper{position:relative;display:inline-flex;align-items:center}.callout-inserter-btn{padding:0;border:none;background:0 0;cursor:pointer;display:flex;color:currentColor}.callout-inserter-btn:hover{opacity:.7}.callout-inserter-dropdown{position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:8px;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:1000;min-width:160px;display:none;overflow:auto;max-height:240px}.callout-inserter-dropdown.show{display:block}.callout-inserter-item{padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;transition:background .15s}.callout-inserter-item:hover{background:#f5f5f5}.callout-inserter-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}`;
-
-    const ICONS = { note: "M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5zm-6.17-1.81 4 4", abstract: "M8 2h8v4H8zM16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2M12 11h4M12 16h4M8 11h.01M8 16h.01", info: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 14v-4m0-4h.01", tip: "M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4", success: "M20 6 9 17l-5-5", question: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01", warning: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3M12 9v4m0 4h.01", failure: "M18 6 6 18M6 6l12 12", danger: "M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z", bug: "M12 20v-9m2-6a4 4 0 0 1 4 4v3a6 6 0 0 1-12 0v-3a4 4 0 0 1 4-4zM14.12 3.88 16 2M8 2l1.88 1.88M9 7.13V6a3 3 0 1 1 6 0v1.13", example: "M3 5h.01M3 12h.01M3 19h.01M8 5h13M8 12h13M8 19h13", quote: "M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2zM5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z", fold: "m6 9 6 6 6-6" };
-    const TYPE_MAP = { summary: "abstract", tldr: "abstract", hint: "tip", important: "tip", check: "success", done: "success", help: "question", faq: "question", caution: "warning", attention: "warning", fail: "failure", missing: "failure", error: "danger", cite: "quote" };
-    const MENUS = [{ k: "note", n: "笔记", c: "8,109,221" }, { k: "info", n: "信息", c: "8,109,221" }, { k: "tip", n: "提示", c: "83,223,221" }, { k: "warning", n: "警告", c: "236,117,0" }, { k: "danger", n: "危险", c: "233,49,71" }, { k: "success", n: "成功", c: "68,207,110" }, { k: "question", n: "问题", c: "236,117,0" }, { k: "example", n: "示例", c: "120,82,238" }];
-    const svg = d => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon"><path d="${d}"/></svg>`;
-    const RE = /^\[!(\w+)\]([+-])?(?:\s+([^<\n]+))?(?:<br\s*\/?>)?([\s\S]*)$/i;
-
-    const render = (els) => {
-        els.forEach(bq => {
-            if (bq.classList.contains("oc-done") || bq.closest("blockquote.oc-done")) return;
-            bq.classList.add("oc-done");
-            const p = bq.querySelector(":scope > p");
-            const m = (p?.innerHTML?.trim() || "").match(RE);
-            if (!m) return;
-            const [, type, fold, title, content] = m;
-            const t = type.toLowerCase(), base = TYPE_MAP[t] || t, icon = ICONS[base] || ICONS.note;
-            const isColl = fold === "+" || fold === "-", isCol = fold === "-";
-            const wrap = document.createElement("div");
-            wrap.className = `callout${isColl ? " is-collapsible" : ""}${isCol ? " is-collapsed" : ""}`;
-            wrap.dataset.callout = t;
-            const titleEl = document.createElement("div");
-            titleEl.className = "callout-title";
-            titleEl.innerHTML = `<div class="callout-icon">${svg(icon)}</div><div class="callout-title-inner">${title?.trim() || type[0].toUpperCase() + type.slice(1)}</div>`;
-            if (isColl) {
-                const foldEl = document.createElement("div");
-                foldEl.className = `callout-fold${isCol ? " is-collapsed" : ""}`;
-                foldEl.innerHTML = svg(ICONS.fold);
-                titleEl.appendChild(foldEl);
-                titleEl.onclick = () => { wrap.classList.toggle("is-collapsed"); foldEl.classList.toggle("is-collapsed"); };
-            }
-            wrap.appendChild(titleEl);
-            const cont = document.createElement("div");
-            cont.className = "callout-content";
-            if (content?.trim()) { const pp = document.createElement("p"); pp.innerHTML = content.trim(); cont.appendChild(pp); }
-            let sib = p.nextSibling;
-            while (sib) { const next = sib.nextSibling; cont.appendChild(sib); sib = next; }
-            if (cont.childNodes.length) wrap.appendChild(cont);
-            bq.replaceWith(wrap);
-        });
-    };
-
-    const insertCallout = (editor, type) => {
-        const cm = editor.querySelector(".CodeMirror")?.CodeMirror;
-        if (!cm) return;
-        const doc = cm.getDoc();
-        let cur = doc.getCursor();
-        const lvl = (doc.getLine(cur.line).match(/^(>\s*)+/)?.[0].match(/>/g) || []).length;
-        if (lvl > 0) {
-            let last = cur.line;
-            for (let i = cur.line + 1; i < doc.lineCount(); i++) { if (doc.getLine(i).match(/^>\s*/)) last = i; else break; }
-            cur = { line: last, ch: doc.getLine(last).length };
-        }
-        const pre = lvl > 0 ? ">".repeat(lvl + 1) + " " : "> ";
-        doc.replaceRange((lvl > 0 ? "\n" : "") + `${pre}[!${type}] \n${pre}`, cur);
-        doc.setCursor({ line: cur.line + (lvl > 0 ? 1 : 0), ch: `${pre}[!${type}] `.length });
-        cm.focus();
-    };
-
-    let clickBound = false;
-    const createInserter = () => {
-        const editor = $(".md-editor");
-        const bar = editor?.querySelector(".mde-toolbar");
-        if (!editor || !bar || bar.querySelector(".callout-inserter-wrapper")) return;
-
-        const vAttr = [...(bar.querySelector(".toolbar-item")?.attributes || [])].find(a => a.name.startsWith("data-v-"))?.name;
-        const setV = el => vAttr && el.setAttribute(vAttr, "");
-
-        const wrap = document.createElement("span");
-        wrap.className = "callout-inserter-wrapper toolbar-item";
-        wrap.title = "Callout - NodeSeek X";
-        setV(wrap);
-
-        const btn = document.createElement("span");
-        btn.className = "callout-inserter-btn i-icon";
-        btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 48 48" fill="none"><path d="M44 8H4v30h15l5 5 5-5h15V8Z" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M24 18v10" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><circle cx="24" cy="33" r="2" fill="currentColor"/></svg>`;
-        setV(btn);
-
-        const drop = document.createElement("div");
-        drop.className = "callout-inserter-dropdown";
-        MENUS.forEach(t => {
-            const item = document.createElement("div");
-            item.className = "callout-inserter-item";
-            item.innerHTML = `<span class="callout-inserter-dot" style="background:rgb(${t.c})"></span>${t.n}[${t.k}]`;
-            item.onclick = e => { e.stopPropagation(); insertCallout(editor, t.k); drop.classList.remove("show"); };
-            drop.appendChild(item);
-        });
-
-        btn.onclick = e => { e.stopPropagation(); drop.classList.toggle("show"); };
-        if (!clickBound) { document.addEventListener("click", () => $$(".callout-inserter-dropdown.show").forEach(d => d.classList.remove("show"))); clickBound = true; }
-
-        const sep = document.createElement("div");
-        sep.className = "sep";
-        setV(sep);
-        wrap.append(btn, drop);
-        bar.append(sep, wrap);
-    };
-
-    const callout = {
-        id: "callout",
-        order: 360,
-        cfg: {
-            callout: {
-                enabled: true,
-                render: true,
-                editor: true,
-                style: "colorful"
-            }
-        },
-        meta: {
-            callout: {
-                label: "Callout 支持",
-                group: "内容设置",
-                fields: {
-                    render: { type: "SWITCH", label: "正文渲染" },
-                    editor: { type: "SWITCH", label: "编辑器按钮" },
-                    style: { type: "RADIO", label: "渲染风格", options: [{ value: "colorful", text: "绚丽" }, { value: "clean", text: "清新" }] }
-                }
-            }
-        },
-        match: ctx => (ctx.isPost || /^\/new-discussion/.test(location.pathname)) && ctx.store.get("callout.enabled", true) && (ctx.store.get("callout.render", true) || ctx.store.get("callout.editor", true)),
-        init(ctx) {
-            if (ctx.store.get("callout.render", true)) {
-                const style = ctx.store.get("callout.style", "colorful");
-                addStyle("nsx-callout-render", CSS_RENDER + (style === "colorful" ? CSS_COLORFUL : ""));
-                render($$(".post-content blockquote"));
-            }
-            if (ctx.store.get("callout.editor", true)) {
-                addStyle("nsx-callout-editor", CSS_EDITOR);
-                createInserter();
-                document.addEventListener("click", e => { if (e.target?.closest?.(".md-editor")) requestAnimationFrame(createInserter); });
-            }
-        },
-        watch: ctx => {
-            const w = [];
-            if (ctx.store.get("callout.render", true)) {
-                w.push({ sel: ".post-content blockquote", fn: render, opts: { debounce: 80 } });
-            }
-            if (ctx.store.get("callout.editor", true)) {
-                w.push({ sel: ".mde-toolbar", fn: createInserter, opts: { debounce: 80 } });
-            }
-            return w;
-        }
-    };
-
-    const __vite_glob_0_4 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
-        __proto__: null,
-        default: callout
-    }, Symbol.toStringTag, { value: 'Module' }));
-
     // 代码高亮
 
     const codeHighlight = {
@@ -557,12 +403,42 @@
         init(ctx) {
             // 挂载 highlight.js
             addScript("nsx-hljs-script", "https://s4.zstatic.net/ajax/libs/highlight.js/11.9.0/highlight.min.js");
-            addScript("nsx-hljs-onload", `(()=>{const r=()=>{if(window.hljs&&typeof hljs.highlightAll==="function")hljs.highlightAll()};document.readyState==="complete"?r():window.addEventListener("load",r,{once:true})})()`);
+            addScript("nsx-hljs-onload", `(()=>{const r=()=>{if(window.hljs){document.querySelectorAll('.post-content pre code').forEach(el=>{if(el.classList.contains('language-mermaid'))return;const s=el.querySelector('span');if(s&&Array.from(s.classList).some(c=>c.startsWith('hljs-')))return;try{window.hljs.highlightElement(el)}catch(e){}})}};document.readyState==="complete"?r():window.addEventListener("load",r,{once:true})})()`);
+
+            // 挂载 mermaid.js
+            addScript("nsx-mermaid-script", "https://s4.zstatic.net/ajax/libs/mermaid/11.15.0/mermaid.min.js");
+            addScript("nsx-mermaid-onload", `(()=>{const r=()=>{if(window.mermaid){mermaid.initialize({startOnLoad:false,theme:'default'});const nodes=document.querySelectorAll('.language-mermaid');if(nodes.length)mermaid.run({nodes})}};document.readyState==="complete"?r():window.addEventListener("load",r,{once:true})})()`);
         },
-        watch: ctx => ({ sel: ".post-content pre code", fn: els => els.forEach(el => ctx.uw.hljs?.highlightElement(el)), opts: { debounce: 80 } })
+        watch: ctx => ({
+            sel: ".post-content pre code",
+            fn: els => {
+                const mermaidEls = [];
+                els.forEach(el => {
+                    console.log('hihg-watch');
+                    if (el.classList.contains("language-mermaid")) {
+                        mermaidEls.push(el);
+                    } else {
+                        // 判断第1个 span 元素是否存在 hljs- 开头的 class
+                        const firstSpan = el.querySelector("span");
+                        const isHighlighted = firstSpan && Array.from(firstSpan.classList).some(c => c.startsWith("hljs-"));
+                        if (!isHighlighted) {
+                            ctx.uw.hljs?.highlightElement(el);
+                        }
+                    }
+                });
+                if (mermaidEls.length > 0 && ctx.uw.mermaid) {
+                    try {
+                        ctx.uw.mermaid.run({ nodes: mermaidEls });
+                    } catch (e) {
+                        console.error("Mermaid run error:", e);
+                    }
+                }
+            },
+            opts: { debounce: 80 }
+        })
     };
 
-    const __vite_glob_0_5 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_4 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: codeHighlight
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -870,46 +746,9 @@
         })
     };
 
-    const __vite_glob_0_6 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_5 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: commentFootprint
-    }, Symbol.toStringTag, { value: 'Module' }));
-
-    // 快捷键发送评论 (Ctrl+Enter)
-
-    const commentShortcut = {
-        id: "commentShortcut",
-        order: 135,
-        cfg: { comment_shortcut: { enabled: true } },
-        meta: { comment_shortcut: { label: "快捷键发帖", group: "内容设置" } },
-        match: ctx => ctx.isPost && ctx.store.get("comment_shortcut.enabled", true),
-        init(ctx) {
-            const getBtn = () => $(".md-editor button.submit.btn.focus-visible");
-            $$(".CodeMirror").forEach(cmEl => {
-                const cm = cmEl?.CodeMirror;
-                if (!cm || cm.__nsx) return;
-                cm.__nsx = true;
-                const bind = () => {
-                    const btn = getBtn();
-                    if (btn && !/Ctrl\+Enter/i.test(btn.textContent)) btn.textContent += "(Ctrl+Enter)";
-                    if (btn && !cm.__nsxMap) {
-                        cm.__nsxMap = { "Ctrl-Enter": () => getBtn()?.click() };
-                        cm.addKeyMap(cm.__nsxMap);
-                    } else if (!btn && cm.__nsxMap) {
-                        cm.removeKeyMap(cm.__nsxMap);
-                        cm.__nsxMap = null;
-                    }
-                };
-                bind();
-                cmEl.addEventListener("focusin", bind, true);
-                cmEl.addEventListener("focusout", bind, true);
-            });
-        }
-    };
-
-    const __vite_glob_0_7 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
-        __proto__: null,
-        default: commentShortcut
     }, Symbol.toStringTag, { value: 'Module' }));
 
     // 暗色模式样式切换
@@ -930,9 +769,184 @@
         }
     };
 
-    const __vite_glob_0_8 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_6 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: darkMode
+    }, Symbol.toStringTag, { value: 'Module' }));
+
+    // 编辑器增强 (Callout / Tabs / Details / 快捷键)
+
+    const CSS$5 = `.nsx-ee-btn{position:relative;display:inline-flex;align-items:center}.nsx-ee-btn>span.i-icon{padding:0;border:none;background:0 0;cursor:pointer;display:flex;color:currentColor}.nsx-ee-btn>span.i-icon:hover{opacity:.7}.nsx-ee-drop{position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:8px;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:1000;min-width:140px;display:none;background:var(--bg-color,#fff);border:1px solid var(--border-color,#eee);overflow:hidden}.nsx-ee-drop.show{display:block}.nsx-ee-item{display:flex;align-items:stretch;font-size:13px;border-bottom:1px solid var(--border-color,#eee);transition:background .15s}.nsx-ee-item:last-child{border-bottom:none}.nsx-ee-main{padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;flex:1}.nsx-ee-item:hover{background:rgba(128,128,128,.1)}.nsx-ee-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}.nsx-ee-actions{display:flex;align-items:stretch;border-left:1px solid var(--border-color,#eee)}.nsx-ee-act{padding:0 10px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:monospace;font-size:14px;transition:background .15s}.nsx-ee-act:hover{background:rgba(128,128,128,.1)}`;
+
+    const SVG_CALLOUT = `<svg width="16" height="16" viewBox="0 0 48 48" fill="none"><path d="M44 8H4v30h15l5 5 5-5h15V8Z" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M24 18v10" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><circle cx="24" cy="33" r="2" fill="currentColor"/></svg>`;
+    const SVG_LAYOUT = `<svg width="16" height="16" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M24 4L4 14v20l20 10 20-10V14L24 4z"/><path d="M4 14l20 10 20-10M24 24v20"/></svg>`;
+
+    const CALLOUT_MENUS = [
+        { k: "note", n: "笔记", c: "9,105,218" },
+        { k: "tip", n: "提示", c: "26,127,55" },
+        { k: "important", n: "重要", c: "130,80,223" },
+        { k: "warning", n: "警告", c: "154,103,0" },
+        { k: "caution", n: "注意", c: "207,34,46" }
+    ];
+    const LAYOUT_MENUS = [
+        { k: "details", n: "通用折叠" },
+        { k: "tabs", n: "Tabs 面板" }
+    ];
+
+    const insertText = (editor, action, type, fold = "") => {
+        const cm = editor.querySelector(".CodeMirror")?.CodeMirror;
+        if (!cm) return;
+        const doc = cm.getDoc();
+        let cur = doc.getCursor();
+
+        if (action === "callout") {
+            const lvl = (doc.getLine(cur.line).match(/^(>\s*)+/)?.[0].match(/>/g) || []).length;
+            if (lvl > 0) {
+                let last = cur.line;
+                for (let i = cur.line + 1; i < doc.lineCount(); i++) { if (doc.getLine(i).match(/^>\s*/)) last = i; else break; }
+                cur = { line: last, ch: doc.getLine(last).length };
+            }
+            const pre = lvl > 0 ? ">".repeat(lvl + 1) + " " : "> ";
+            doc.replaceRange((lvl > 0 ? "\n" : "") + `${pre}[!${type}]${fold} \n${pre}`, cur);
+            doc.setCursor({ line: cur.line + (lvl > 0 ? 1 : 0) + 1, ch: pre.length });
+        } else if (action === "layout") {
+            const tpl = type === "details"
+                ? `\n::: details 点击展开\n这里是被折叠内容\n:::\n`
+                : `\n:::: tabs\n::: tab-item 标签一\n内容一\n:::\n::: tab-item 标签二\n内容二\n:::\n::::\n`;
+            const offset = type === "details" ? 2 : 3;
+            doc.replaceRange(tpl, cur);
+            const targetLine = cur.line + offset;
+            doc.setSelection({ line: targetLine, ch: 0 }, { line: targetLine, ch: doc.getLine(targetLine).length });
+        }
+        cm.focus();
+    };
+
+    const bindShortcut = (editor) => {
+        const cmEl = editor.querySelector(".CodeMirror");
+        const cm = cmEl?.CodeMirror;
+        if (!cm || cm.__nsx) return;
+        cm.__nsx = true;
+
+        const getBtn = () => editor.querySelector("button.submit.btn.focus-visible") || document.querySelector(".md-editor button.submit.btn.focus-visible");
+        const bind = () => {
+            const btn = getBtn();
+            if (btn && !/Ctrl\+Enter/i.test(btn.textContent)) btn.textContent += "(Ctrl+Enter)";
+            if (btn && !cm.__nsxMap) {
+                cm.__nsxMap = { "Ctrl-Enter": () => getBtn()?.click() };
+                cm.addKeyMap(cm.__nsxMap);
+            } else if (!btn && cm.__nsxMap) {
+                cm.removeKeyMap(cm.__nsxMap);
+                cm.__nsxMap = null;
+            }
+        };
+        bind();
+        cmEl.addEventListener("focusin", bind, true);
+        cmEl.addEventListener("focusout", bind, true);
+    };
+
+    let clickBound = false;
+    const createInserters = (ctx) => {
+        const editor = $(".md-editor");
+        if (!editor) return;
+
+        // 绑定快捷键
+        if (ctx.store.get("editorEnhance.shortcut", true)) bindShortcut(editor);
+
+        const bar = editor.querySelector(".mde-toolbar");
+        if (!bar) return;
+
+        const vAttr = [...(bar.querySelector(".toolbar-item")?.attributes || [])].find(a => a.name.startsWith("data-v-"))?.name;
+        const v = vAttr ? ` ${vAttr}=""` : "";
+
+        // 生成 Callout 按钮
+        if (ctx.store.get("editorEnhance.callout", true) && !bar.querySelector("[data-toggle='callout']")) {
+            bar.insertAdjacentHTML("beforeend", `<div class="sep"${v}></div><span class="nsx-ee-btn toolbar-item"${v} title="Callout - NodeSeek X" data-toggle="callout"><span class="i-icon"${v}>${SVG_CALLOUT}</span>
+            <div class="nsx-ee-drop" style="min-width:200px">
+                ${CALLOUT_MENUS.map(t => `<div class="nsx-ee-item"><div class="nsx-ee-main" data-action="callout" data-type="${t.k}"><span class="nsx-ee-dot" style="background:rgb(${t.c})"></span>${t.n}[${t.k}]</div><div class="nsx-ee-actions"><div class="nsx-ee-act" data-action="callout" data-type="${t.k}" data-fold="+">+</div><div class="nsx-ee-act" data-action="callout" data-type="${t.k}" data-fold="-">-</div></div></div>`).join("")}
+            </div>
+        </span>`);
+        }
+
+        // 生成 Tabs/Details 按钮
+        if (ctx.store.get("editorEnhance.layout", true) && !bar.querySelector("[data-toggle='layout']")) {
+            bar.insertAdjacentHTML("beforeend", `<div class="sep"${v}></div><span class="nsx-ee-btn toolbar-item"${v} title="排版语法 (Tabs / 折叠) - NodeSeek X" data-toggle="layout"><span class="i-icon"${v}>${SVG_LAYOUT}</span>
+            <div class="nsx-ee-drop">
+                ${LAYOUT_MENUS.map(t => `<div class="nsx-ee-item"><div class="nsx-ee-main" data-action="layout" data-type="${t.k}">${t.n}</div></div>`).join("")}
+            </div>
+        </span>`);
+        }
+
+        // 绑定全局委托点击事件（只绑一次）
+        if (!clickBound) {
+            document.addEventListener("click", e => {
+                const toggle = e.target.closest("[data-toggle]");
+                const action = e.target.closest("[data-action]");
+
+                // 点击下拉项，执行插入操作
+                if (action) {
+                    const act = action.getAttribute("data-action");
+                    const type = action.getAttribute("data-type");
+                    const fold = action.getAttribute("data-fold") || "";
+
+                    const curEditor = action.closest(".md-editor") || $(".md-editor");
+                    if (curEditor) insertText(curEditor, act, type, fold);
+
+                    $$(".nsx-ee-drop").forEach(d => d.classList.remove("show"));
+                    return;
+                }
+
+                // 点击主按钮，切换下拉面板
+                if (toggle) {
+                    const targetDrop = toggle.querySelector(".nsx-ee-drop");
+                    if (targetDrop) {
+                        const isShowing = targetDrop.classList.contains("show");
+                        $$(".nsx-ee-drop").forEach(d => d.classList.remove("show"));
+                        if (!isShowing) targetDrop.classList.add("show");
+                    }
+                    return;
+                }
+
+                // 点击空白处，关闭全部面板
+                $$(".nsx-ee-drop").forEach(d => d.classList.remove("show"));
+            });
+            clickBound = true;
+        }
+    };
+
+    const editorEnhance = {
+        id: "editorEnhance",
+        order: 360,
+        cfg: {
+            editorEnhance: {
+                enabled: true,
+                callout: true,
+                layout: true,
+                shortcut: true
+            }
+        },
+        meta: {
+            editorEnhance: {
+                label: "编辑器增强",
+                group: "内容设置",
+                fields: {
+                    callout: { type: "SWITCH", label: "Callout" },
+                    layout: { type: "SWITCH", label: "Tabs/折叠" },
+                    shortcut: { type: "SWITCH", label: "快捷键发帖" }
+                }
+            }
+        },
+        match: ctx => (ctx.isPost || /^\/new-discussion/.test(location.pathname)) && ctx.store.get("editorEnhance.enabled", true) && (ctx.store.get("editorEnhance.callout", true) || ctx.store.get("editorEnhance.layout", true) || ctx.store.get("editorEnhance.shortcut", true)),
+        init(ctx) {
+            addStyle("nsx-ee", CSS$5);
+            createInserters(ctx);
+            document.addEventListener("click", e => { if (e.target?.closest?.(".md-editor")) requestAnimationFrame(() => createInserters(ctx)); });
+        },
+        watch: ctx => [{ sel: ".md-editor", fn: () => createInserters(ctx), opts: { debounce: 80 } }]
+    };
+
+    const __vite_glob_0_7 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+        __proto__: null,
+        default: editorEnhance
     }, Symbol.toStringTag, { value: 'Module' }));
 
     // 浏览历史
@@ -1060,7 +1074,7 @@
         }
     };
 
-    const __vite_glob_0_9 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_8 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: history$1
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -1095,7 +1109,7 @@
         watch: ctx => ({ sel: "article.post-content img:not(.sticker)", fn: els => bind(els, ctx), opts: { debounce: 80 } })
     };
 
-    const __vite_glob_0_10 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_9 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: imageSlide
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -1380,7 +1394,7 @@
         })
     };
 
-    const __vite_glob_0_11 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_10 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: imageUpload
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -1410,7 +1424,7 @@
         }
     };
 
-    const __vite_glob_0_12 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_11 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: instantPage
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -1556,7 +1570,7 @@
         }
     };
 
-    const __vite_glob_0_13 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_12 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: levelTag
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -1865,7 +1879,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_14 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_13 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: linkPurifier
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2127,7 +2141,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_15 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_14 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: menus
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2169,7 +2183,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_16 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_15 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: openPostInNewTab
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2222,7 +2236,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_17 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_16 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: quickComment
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2263,7 +2277,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_18 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_17 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: signIn
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2307,7 +2321,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_19 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_18 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: signinTips
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2325,7 +2339,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_20 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_19 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: smoothScroll
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2417,7 +2431,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_21 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_20 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: userCardExt
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2450,7 +2464,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_22 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_21 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: visitedColor
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2515,7 +2529,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         addStyle("nsx-layui-dark", "https://s.cfn.pp.ua/layui/theme-dark/2.10.3/css/layui-theme-dark-selector.css");
 
         // 加载模块
-        const mods = /* #__PURE__ */ Object.assign({"./features/autoLoading.js": __vite_glob_0_0,"./features/blockMembers.js": __vite_glob_0_1,"./features/blockPosts.js": __vite_glob_0_2,"./features/blockViewLevel.js": __vite_glob_0_3,"./features/callout.js": __vite_glob_0_4,"./features/codeHighlight.js": __vite_glob_0_5,"./features/commentFootprint.js": __vite_glob_0_6,"./features/commentShortcut.js": __vite_glob_0_7,"./features/darkMode.js": __vite_glob_0_8,"./features/history.js": __vite_glob_0_9,"./features/imageSlide.js": __vite_glob_0_10,"./features/imageUpload.js": __vite_glob_0_11,"./features/instantPage.js": __vite_glob_0_12,"./features/levelTag.js": __vite_glob_0_13,"./features/linkPurifier.js": __vite_glob_0_14,"./features/menus.js": __vite_glob_0_15,"./features/openPostInNewTab.js": __vite_glob_0_16,"./features/quickComment.js": __vite_glob_0_17,"./features/signIn.js": __vite_glob_0_18,"./features/signinTips.js": __vite_glob_0_19,"./features/smoothScroll.js": __vite_glob_0_20,"./features/userCardExt.js": __vite_glob_0_21,"./features/visitedColor.js": __vite_glob_0_22});
+        const mods = /* #__PURE__ */ Object.assign({"./features/autoLoading.js": __vite_glob_0_0,"./features/blockMembers.js": __vite_glob_0_1,"./features/blockPosts.js": __vite_glob_0_2,"./features/blockViewLevel.js": __vite_glob_0_3,"./features/codeHighlight.js": __vite_glob_0_4,"./features/commentFootprint.js": __vite_glob_0_5,"./features/darkMode.js": __vite_glob_0_6,"./features/editorEnhance.js": __vite_glob_0_7,"./features/history.js": __vite_glob_0_8,"./features/imageSlide.js": __vite_glob_0_9,"./features/imageUpload.js": __vite_glob_0_10,"./features/instantPage.js": __vite_glob_0_11,"./features/levelTag.js": __vite_glob_0_12,"./features/linkPurifier.js": __vite_glob_0_13,"./features/menus.js": __vite_glob_0_14,"./features/openPostInNewTab.js": __vite_glob_0_15,"./features/quickComment.js": __vite_glob_0_16,"./features/signIn.js": __vite_glob_0_17,"./features/signinTips.js": __vite_glob_0_18,"./features/smoothScroll.js": __vite_glob_0_19,"./features/userCardExt.js": __vite_glob_0_20,"./features/visitedColor.js": __vite_glob_0_21});
         Object.values(mods).forEach(m => m.default && define(m.default));
 
         // 创建 Observer & ctx
