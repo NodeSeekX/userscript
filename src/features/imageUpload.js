@@ -1,5 +1,5 @@
 // 图床上传模块 (NodeSeek 编辑器增强)
-
+import { net } from "../core.js";
 let ctx, pendingLogin = false, lastSyncTime = 0, tokenRequest = null;
 const KEY = "image_upload", NODE = "NodeImage", API = "https://api.nodeimage.com", COOLDOWN = 5 * 60 * 1000;
 const NAMES = { NodeImage: "NodeImage", Chevereto: "Chevereto", LskyPro: "LskyPro", EasyImages: "EasyImages", Telegraph: "Telegraph", Telegraph2: "Telegraph v2" };
@@ -38,18 +38,18 @@ const log = (msg, color = "") => {
 const hostName = () => NAMES[get("active", NODE)] || get("active", NODE);
 const updatePicTitles = () => document.querySelectorAll(".i-icon-pic.t-hj").forEach(el => { el.title = hostName(); });
 
-const request = ({ method = "POST", url, data = null, headers = {}, withCredentials = false, responseType }) => {
+const request = async ({ method = "POST", url, data = null, headers = {}, withCredentials = false, responseType }) => {
     if ((m => m === "fetch" || m === "auto" && isSafari)(get("reqMode", "auto"))) return fetch(url, { method, body: data, credentials: "omit", headers }).then(r => r.ok ? r.json() : Promise.reject(Object.assign(new Error(`HTTP ${r.status}`), { status: r.status })));
-    return new Promise((resolve, reject) => GM_xmlhttpRequest({
-        method, url, data, headers, withCredentials, responseType,
-        onload: r => {
-            try {
-                const body = responseType === "json" ? r.response : JSON.parse(r.responseText);
-                r.status >= 200 && r.status < 300 ? resolve(body) : reject(Object.assign(new Error(`HTTP ${r.status}`), { status: r.status, response: body }));
-            } catch { reject(new Error(`解析响应失败: ${r.responseText}`)); }
-        },
-        onerror: reject
-    }));
+    
+    const r = await net.gmFetch({ method, url, data, headers, withCredentials, responseType });
+    try {
+        const body = responseType === "json" ? r.response : JSON.parse(r.responseText);
+        if (r.status >= 200 && r.status < 300) return body;
+        throw Object.assign(new Error(`HTTP ${r.status}`), { status: r.status, response: body });
+    } catch (e) {
+        if (e.status) throw e;
+        throw new Error(`解析响应失败: ${r.responseText}`);
+    }
 };
 
 const nodeToken = async () => {

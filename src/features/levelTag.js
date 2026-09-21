@@ -1,7 +1,7 @@
 // 等级标签
 import { addStyle, net } from "../core.js";
 
-const LV_COLORS = ["#c7c2c2","#ffb74d","#ff9400","#ff5252","#e53935","#ab47bc","#8e24aa","#42a5f5","#1e88e5","#66bb6a","#2e7d32","#ffca28","#ffb300","#b388ff","#7c4dff","#000"];
+const LV_COLORS = ["#c7c2c2", "#ffb74d", "#ff9400", "#ff5252", "#e53935", "#ab47bc", "#8e24aa", "#42a5f5", "#1e88e5", "#66bb6a", "#2e7d32", "#ffca28", "#ffb300", "#b388ff", "#7c4dff", "#000"];
 const CSS = `.role-tag.user-level{background:#000;border-color:#000;color:#ffd700}${LV_COLORS.map((c, i) => `.role-tag.user-lv${i}{background:${c};border-color:${c};color:#fafafa}`).join("")}.user-reg-info{margin-left:6px;font-size:12px;font-weight:600}`;
 
 const SEL_COMMENT = "#nsk-body .comment-container .content-item";
@@ -38,7 +38,8 @@ function createEl(ctx, user, mode, username) {
     const days = Math.floor((Date.now() - new Date(user.created_at)) / 864e5);
     const alarm = ctx.store.get("level_tag.low_lv_alarm") && days < ctx.store.get("level_tag.low_lv_max_days", 30) ? "⚠️" : "";
     const coin = user.coin < 0 ? 0 : user.coin;
-    const rank = Math.floor(Math.sqrt(coin) / 10);
+    const calcRank = ctx.store.get("level_tag.calc_rank", false);
+    const rank = calcRank ? Math.floor(Math.sqrt(coin) / 10) : (user.rank !== undefined ? user.rank : Math.floor(Math.sqrt(coin) / 10));
     const span = document.createElement("span");
     if (mode === "inline") {
         const f = n => (n ?? 0).toLocaleString();
@@ -61,14 +62,19 @@ const _observed = new WeakSet();
 export default {
     id: "levelTag",
     order: 260,
-    cfg: { level_tag: { enabled: true, comment_enabled: true, show_detail: false, low_lv_alarm: true, low_lv_max_days: 30, cache_ttl: 5 } },
-    meta: { level_tag: { label: "等级标签", group: "显示设置", fields: {
-        show_detail: { type: "SWITCH", label: "详细信息", desc: "在用户名后直接显示注册天数、发帖数等详细数据" },
-        comment_enabled: { type: "SWITCH", label: "评论等级" },
-        low_lv_alarm: { type: "SWITCH", label: "低等级警告" },
-        low_lv_max_days: { type: "NUMBER", label: "注册天数", valueType: "number", desc: "低于此天数的新注册用户将显示 ⚠️ 警告图标" },
-        cache_ttl: { type: "NUMBER", label: "缓存时间(分钟)", valueType: "number", desc: "同一用户的等级信息在内存中保留的时间，避免重复请求" }
-    } } },
+    cfg: { level_tag: { enabled: true, calc_rank: false, comment_enabled: true, show_detail: false, low_lv_alarm: true, low_lv_max_days: 30, cache_ttl: 5 } },
+    meta: {
+        level_tag: {
+            label: "等级标签", group: "显示设置", fields: {
+                calc_rank: { type: "SWITCH", label: "肝帝显形", desc: "开启时根据鸡腿数计算并显示等级，关闭时显示真实等级" },
+                show_detail: { type: "SWITCH", label: "详细信息", desc: "在用户名后直接显示注册天数、发帖数等详细数据" },
+                comment_enabled: { type: "SWITCH", label: "评论等级", desc: "开启后会在评论列表显示等级标签" },
+                low_lv_alarm: { type: "SWITCH", label: "低等级警告", desc: "在注册天数低于设定值时，用户名前显示 ⚠️ 警告图标" },
+                low_lv_max_days: { type: "NUMBER", label: "注册天数", valueType: "number", desc: "低于此天数的用户将显示 ⚠️ 警告图标" },
+                cache_ttl: { type: "NUMBER", label: "缓存时间(分钟)", valueType: "number", desc: "同一用户的等级信息在内存中保留的时间，避免重复请求" }
+            }
+        }
+    },
     match: ctx => ctx.loggedIn && ctx.isPost && ctx.store.get("level_tag.enabled", true),
     async init(ctx) {
         addStyle("nsx-lv", CSS);

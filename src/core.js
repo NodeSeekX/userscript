@@ -88,6 +88,16 @@ export const net = {
         });
         return r[type]().catch(() => null);
     },
+    gmFetch(opts) {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                ...opts,
+                onload: resolve,
+                onerror: (e) => reject(new Error("Network error", { cause: e })),
+                ontimeout: (e) => reject(new Error("Request timeout", { cause: e }))
+            });
+        });
+    },
     get: (u, h, t) => net.fetch(u, { headers: h, type: t }),
     post: (u, d, h, t) => net.fetch(u, { method: "POST", data: d, headers: h, type: t })
 };

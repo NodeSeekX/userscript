@@ -102,10 +102,17 @@ export default {
                 }
                 else if (f.type === "SELECT" && f.options) {
                     inp = el("select", "", blk); inp.name = path;
+                    if (f.search) inp.setAttribute("lay-search", "");
+                    if (f.creatable) inp.setAttribute("lay-creatable", "");
+                    let matched = false;
                     f.options.forEach(opt => {
                         const o = el("option", "", inp); o.value = opt.value; o.textContent = opt.text;
-                        if (String(val) === String(opt.value)) o.setAttribute("selected", "");
+                        if (String(val) === String(opt.value)) { o.setAttribute("selected", ""); matched = true; }
                     });
+                    if (!matched && val !== undefined && val !== null && val !== "") {
+                        const o = el("option", "", inp); o.value = val; o.textContent = val;
+                        o.setAttribute("selected", "");
+                    }
                 }
                 else if (f.type === "COLOR") {
                     const inpWrap = el("div", "layui-input-inline", blk); inpWrap.style.width = "100px";
@@ -114,6 +121,13 @@ export default {
                     const cpWrap = el("div", "layui-inline", blk); cpWrap.style.left = "-11px";
                     const wrap = el("div", "", cpWrap);
                     wrap.dataset.colorPath = path; wrap.dataset.colorVal = val ?? ""; wrap.dataset.colorInp = inp.name; wrap.dataset.colorDefault = f.defaultVal ?? "";
+                }
+                else if (f.type === "SLIDER") {
+                    const innerWrap = el("div", "", blk, "display:flex;align-items:center;min-height:38px;padding-right:15px;");
+                    const sliderWrap = el("div", "", innerWrap, "flex:1;");
+                    Object.assign(sliderWrap.dataset, { sliderPath: path, sliderVal: val ?? f.defaultVal ?? 0, sliderMin: f.min ?? 0, sliderMax: f.max ?? 100, sliderStep: f.step ?? 1, sliderUnit: f.unit ?? "" });
+                    if (f.tipsAlways) sliderWrap.dataset.sliderTipsAlways = "1";
+                    inp = Object.assign(el("input", "", innerWrap), { type: "hidden", name: path, value: val ?? f.defaultVal ?? 0 });
                 }
                 else if (f.type === "BUTTON") {
                     inp = el("button", "layui-btn layui-btn-primary layui-btn-sm", blk);
@@ -146,7 +160,7 @@ export default {
                 const cols = m.cols || 1, defaultCol = Math.floor(12 / cols);
                 Object.keys(cfg).filter(k => k !== "enabled" && !isObj(cfg[k]) && !hidden.has(k)).forEach(k => {
                     const fm = fields[k] || {};
-                    const f = { key: k, label: fm.label || k, type: inferType(cfg[k], fm), options: fm.options, placeholder: fm.placeholder, valueType: inferVT(cfg[k], fm), col: fm.col, defaultVal: cfg[k], action: fm.action, buttonText: fm.buttonText, desc: fm.desc };
+                    const f = { key: k, label: fm.label || k, type: inferType(cfg[k], fm), options: fm.options, placeholder: fm.placeholder, valueType: inferVT(cfg[k], fm), col: fm.col, defaultVal: cfg[k], action: fm.action, buttonText: fm.buttonText, desc: fm.desc, search: fm.search, creatable: fm.creatable, min: fm.min, max: fm.max, step: fm.step, unit: fm.unit, tipsAlways: fm.tipsAlways };
                     const cur = store.get(`${base}.${k}`, cfg[k]);
                     const fe = makeField(f, `${base}.${k}`, cur, defaultCol);
                     if (fe) body.appendChild(fe);
@@ -221,6 +235,13 @@ export default {
                             render(init);
                         });
                     });
+                    window.layui.use("slider", () => r?.querySelectorAll?.("[data-slider-path]").forEach(w => {
+                        const d = w.dataset, i = w.parentElement.querySelector(`input[name="${d.sliderPath}"]`);
+                        window.layui.slider.render({
+                            elem: w, value: +d.sliderVal || 0, min: +d.sliderMin || 0, max: +d.sliderMax || 100, step: +d.sliderStep || 1,
+                            tipsAlways: !!d.sliderTipsAlways, setTips: v => v + (d.sliderUnit || ""), change: v => { if (i) i.value = v; }
+                        });
+                    }));
                 },
                 yes: (idx, ly) => {
                     const r = ly?.[0] || ly, sc = r?.querySelector ? r : document;

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NodeSeek X
 // @namespace    http://www.nodeseek.com/
-// @version      1.1.5
+// @version      1.1.6
 // @description  增强 NodeSeek/DeepFlood 论坛体验：支持自动签到、下拉加载、快捷评论、图床上传、内容过滤、链接净化、消息提醒、浏览历史等功能，并提供可视化设置面板。
 // @author       dabao
 // @match        *://www.nodeseek.com/*
@@ -116,6 +116,16 @@
             });
             return r[type]().catch(() => null);
         },
+        gmFetch(opts) {
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    ...opts,
+                    onload: resolve,
+                    onerror: (e) => reject(new Error("Network error", { cause: e })),
+                    ontimeout: (e) => reject(new Error("Request timeout", { cause: e }))
+                });
+            });
+        },
         get: (u, h, t) => net.fetch(u, { headers: h, type: t }),
         post: (u, d, h, t) => net.fetch(u, { method: "POST", data: d, headers: h, type: t })
     };
@@ -172,8 +182,8 @@
     const autoLoading = {
         id: "autoLoading",
         order: 100,
-        cfg: { loading_post: { enabled: true }, loading_comment: { enabled: true } },
-        meta: { loading_post: { label: "加载帖子", group: "内容设置" }, loading_comment: { label: "加载评论", group: "内容设置" } },
+        cfg: { loading_post: { enabled: true }, loading_comment: { enabled: true, nested: false, interval: 800 } },
+        meta: { loading_post: { label: "加载帖子", group: "内容设置" }, loading_comment: { label: "加载评论", group: "内容设置", fields: { nested: { label: "楼中楼" }, interval: { label: "请求间隔", type: "SLIDER", min: 100, max: 1500, step: 100, unit: "ms", valueType: "number", tipsAlways: true, desc: "拉取下一页楼层时的等待时间。调大可防由于请求过快被服务器拦截。" } } } },
         match: ctx => ctx.store.get("loading_post.enabled", true) || ctx.store.get("loading_comment.enabled", true),
         init(ctx) {
             const profile = (ctx.isList && ctx.store.get("loading_post.enabled", true)) ? PROFILES.list : 
@@ -244,10 +254,9 @@
                 });
             };
 
-            const load = async () => {
+            const load = async (force) => {
                 if (busy) return;
-                const atBottom = document.documentElement.scrollHeight <= innerHeight + scrollY + profile.threshold;
-                if (!atBottom) return;
+                if (!force) { const atBottom = document.documentElement.scrollHeight <= innerHeight + scrollY + profile.threshold; if (!atBottom) return; }
                 const nextUrl = ctx.$(profile.next)?.href;
                 if (!nextUrl) return;
 
@@ -281,8 +290,93 @@
                 busy = false;
             };
 
-            const deb = debounce(load, 300);
-            addEventListener("scroll", throttle(() => { if (scrollY > prevY) deb(); prevY = scrollY; }, 200), { passive: true });
+            if (ctx.isPost && ctx.store.get("loading_comment.nested")) {
+                const RAINBOW = [[59,130,246],[14,165,233],[16,185,129],[132,204,22],[245,158,11],[249,115,22],[239,68,68],[236,72,153],[217,70,239],[139,92,246],[99,102,241],[20,184,166]];
+                const COL_DEPTH = 4, COL_MIN_W = 420;
+                addStyle("nsx-nested", `:root{--ns-card-bg:#fff;--ns-card-border:rgba(15,23,42,.1);--ns-card-rail:rgba(59,130,246,.52);--ns-card-rail-hover:rgba(59,130,246,.78);--ns-card-shadow:0 1px 2px rgba(15,23,42,.05);--ns-card-shadow-hover:0 8px 20px rgba(15,23,42,.1);--ns-nested-border:rgba(15,23,42,.1);--ns-muted:#64748b;--ns-floor-bg:#eef2f7}body.dark-layout{--ns-card-bg:rgba(255,255,255,.02);--ns-card-border:rgba(255,255,255,.08);--ns-card-rail:rgba(125,211,252,.54);--ns-card-rail-hover:rgba(125,211,252,.84);--ns-card-shadow:0 1px 2px rgba(0,0,0,.25);--ns-card-shadow-hover:0 8px 20px rgba(0,0,0,.35);--ns-nested-border:rgba(255,255,255,.12);--ns-muted:#9aa8b8;--ns-floor-bg:rgba(148,163,184,.18)}.comments>.content-item{background:var(--ns-card-bg)!important;border:1px solid var(--ns-card-border)!important;border-left:4px solid var(--ns-card-rail)!important;box-shadow:var(--ns-card-shadow);padding:12px 12px 12px 18px!important;margin-bottom:10px!important;border-radius:10px!important;transition:background .2s,border-color .2s,box-shadow .2s;position:relative;overflow:visible!important}.comments>.content-item:hover{border-left-color:var(--ns-card-rail-hover)!important;box-shadow:var(--ns-card-shadow-hover)}.nested-replies-container{margin-top:10px;padding:2px 0 6px var(--ns-branch-indent,14px);background:transparent!important;position:relative}.nested-replies-container>.content-item.is-nested{border:1px solid var(--ns-card-border)!important;background:var(--ns-card-bg)!important;margin:0 0 4px 2px!important;padding:6px 10px!important;box-shadow:0 2px 6px rgba(15,23,42,.04)!important;overflow:visible!important;border-left:2px solid var(--ns-depth-soft,rgba(203,213,225,.4))!important;border-radius:6px!important;transition:border-color .2s;position:relative}.dark-layout .nested-replies-container>.content-item.is-nested{box-shadow:0 2px 6px rgba(0,0,0,.2)!important}.nested-replies-container>.content-item.is-nested:last-child{margin-bottom:0!important}.nested-replies-container>.content-item.is-nested:hover{border-left-color:var(--ns-depth-strong,var(--ns-card-rail-hover))!important}.nested-replies-container>.content-item.is-nested::before{content:"";position:absolute;left:-2px;top:0;width:8px;height:100%;cursor:pointer}.nested-replies-container>.content-item.is-nested.ns-floor-hidden{padding-bottom:6px!important;border-style:dashed!important;opacity:.95}.nested-replies-container>.content-item.is-nested.ns-floor-hidden>.post-content,.nested-replies-container>.content-item.is-nested.ns-floor-hidden>.signature,.nested-replies-container>.content-item.is-nested.ns-floor-hidden>.comment-menu,.nested-replies-container>.content-item.is-nested.ns-floor-hidden>.nested-collapse-toggle,.nested-replies-container>.content-item.is-nested.ns-floor-hidden>.nested-replies-container{display:none!important}.nested-replies-container>.content-item.is-nested.ns-floor-hidden::after{content:"已隐藏该楼层（点击左侧彩条展开）";display:block;margin-top:4px;font-size:11px;color:var(--ns-muted);user-select:none}.nested-collapse-toggle{margin-top:6px;margin-bottom:2px;display:inline-flex;align-items:center;gap:6px;color:var(--ns-muted);font-size:11px;font-weight:600;background:linear-gradient(90deg,var(--ns-floor-bg),transparent);border:1px solid var(--ns-nested-border);border-left:2px solid var(--ns-card-rail);border-radius:12px;padding:4px 10px;cursor:pointer;user-select:none;transition:background .25s,border-color .25s,box-shadow .25s,transform .2s}.nested-collapse-toggle:hover{box-shadow:0 2px 4px rgba(15,23,42,.06);transform:translateY(-.5px)}.nested-collapse-toggle:active{transform:translateY(0);box-shadow:none}.nested-collapse-toggle::before{content:"↳";font-size:13px;line-height:1;opacity:.7}.nested-replies-container.is-collapsed>.content-item{display:none!important}.is-nested>.post-content,.is-nested>.signature{margin-left:var(--ns-post-indent,40px)}`);
+
+                const depthOf = el => { let d = 0, c = el.parentElement; while (c) { if (c.classList.contains("nested-replies-container")) d++; c = c.parentElement; } return d; };
+                const applyDepth = root => {
+                    root.querySelectorAll(".content-item").forEach(li => {
+                        const d = depthOf(li); li.dataset.nsDepth = d;
+                        if (li.classList.contains("is-nested") && d > 0) {
+                            const [r, g, b] = RAINBOW[(d - 1) % RAINBOW.length];
+                            li.style.setProperty("--ns-depth-soft", `rgba(${r},${g},${b},.42)`);
+                            li.style.setProperty("--ns-depth-strong", `rgb(${r},${g},${b})`);
+                            li.style.setProperty("--ns-post-indent", `${Math.max(24, 40 - (d - 1) * 2)}px`);
+                        }
+                    });
+                    root.querySelectorAll(".nested-replies-container").forEach(c => {
+                        const p = c.parentElement;
+                        if (!p?.classList.contains("content-item")) return;
+                        const nd = +(p.dataset.nsDepth || 0) + 1;
+                        c.style.setProperty("--ns-branch-indent", `${Math.max(0, 10 - (nd - 1) * 2)}px`);
+                        const w = c.getBoundingClientRect().width;
+                        const shouldCollapse = nd >= COL_DEPTH || (w > 0 && w < COL_MIN_W);
+                        let toggle = p.querySelector(":scope > .nested-collapse-toggle");
+                        if (!toggle) {
+                            toggle = Object.assign(document.createElement("button"), { type: "button", className: "nested-collapse-toggle" });
+                            toggle.addEventListener("click", () => {
+                                const collapsed = c.classList.toggle("is-collapsed");
+                                if (collapsed) { delete c.dataset.nsUserExpanded; } else { c.dataset.nsUserExpanded = "1"; }
+                                c.querySelectorAll(".nested-replies-container").forEach(sc => { if (collapsed) { sc.classList.add("is-collapsed"); delete sc.dataset.nsUserExpanded; } else { sc.classList.remove("is-collapsed"); sc.dataset.nsUserExpanded = "1"; } });
+                                applyDepth(root);
+                            });
+                            p.insertBefore(toggle, c);
+                        }
+                        if (shouldCollapse) {
+                            if (!c.dataset.nsUserExpanded) c.classList.add("is-collapsed");
+                            toggle.style.display = "inline-flex";
+                            toggle.textContent = c.classList.contains("is-collapsed") ? (nd >= COL_DEPTH ? "层级较深，点击展开整支对话" : "可视区域较窄，点击展开整支对话") : "收起整支对话";
+                        } else { c.classList.remove("is-collapsed"); toggle.style.display = "none"; }
+                    });
+                };
+
+                const sleep = ms => new Promise(r => setTimeout(r, ms));
+                const tip = Object.assign(document.createElement("div"), { style: "padding:8px 12px;margin-bottom:10px;border-radius:6px;text-align:center;background:#fbbf24;color:#000;font-size:14px" });
+                document.querySelector(profile.list)?.before(tip);
+                const fetchAll = async () => {
+                    let page = 1;
+                    try {
+                        while (ctx.$(profile.next)) { tip.textContent = `正在拉取第 ${++page} 页评论以构建楼中楼…`; await load(true); await sleep(ctx.store.get("loading_comment.interval", 800)); }
+                        tip.textContent = `✓ 全部 ${page} 页评论加载完成，正在重组楼中楼…`;
+                    } catch (e) { tip.textContent = `第 ${page} 页拉取失败：${e.message}`; return; }
+                    document.querySelectorAll(profile.pagerTop + "," + profile.pagerBot).forEach(e => e.style.display = "none");
+                    const root = document.querySelector(profile.list);
+                    const nodes = $$("ul.comments > li.content-item");
+                    const map = new Map(nodes.map(li => [parseInt(li.id), li])); map.delete(NaN);
+                    map.forEach((li, id) => {
+                        for (const a of li.querySelector(".post-content")?.querySelectorAll('a[href*="#"]') ?? []) {
+                            const pid = parseInt(a.textContent.replace("#", ""));
+                            if (isNaN(pid)) continue;
+                            const parent = map.get(pid);
+                            if (parent && id > pid) {
+                                a.style.display = "none"; li.classList.add("is-nested");
+                                (parent.querySelector(":scope > .nested-replies-container") || parent.appendChild(Object.assign(document.createElement("div"), { className: "nested-replies-container" }))).append(li);
+                            }
+                            break;
+                        }
+                    });
+                    if (root) {
+                        applyDepth(root);
+                        root.addEventListener("click", e => {
+                            const li = e.target.closest(".nested-replies-container > .content-item.is-nested");
+                            if (!li) return;
+                            const ox = e.clientX - li.getBoundingClientRect().left;
+                            if (ox < -2 || ox > 8) return;
+                            e.preventDefault(); e.stopPropagation();
+                            li.classList.toggle("ns-floor-hidden");
+                        }, true);
+                    }
+                    tip.textContent = `✓ 楼中楼重组完成（共 ${page} 页，${nodes.length} 条评论）`;
+                    tip.style.background = "#57BF57"; tip.style.color = "#fff";
+                    setTimeout(() => tip.remove(), 3000);
+                };
+                requestIdleCallback(fetchAll);
+            } else {
+                const deb = debounce(load, 300);
+                addEventListener("scroll", throttle(() => { if (scrollY > prevY) deb(); prevY = scrollY; }, 200), { passive: true });
+            }
         }
     };
 
@@ -1115,7 +1209,6 @@
     }, Symbol.toStringTag, { value: 'Module' }));
 
     // 图床上传模块 (NodeSeek 编辑器增强)
-
     let ctx, pendingLogin = false, lastSyncTime = 0, tokenRequest = null;
     const KEY = "image_upload", NODE = "NodeImage", API = "https://api.nodeimage.com", COOLDOWN = 5 * 60 * 1000;
     const NAMES = { NodeImage: "NodeImage", Chevereto: "Chevereto", LskyPro: "LskyPro", EasyImages: "EasyImages", Telegraph: "Telegraph", Telegraph2: "Telegraph v2" };
@@ -1154,18 +1247,18 @@
     const hostName = () => NAMES[get("active", NODE)] || get("active", NODE);
     const updatePicTitles = () => document.querySelectorAll(".i-icon-pic.t-hj").forEach(el => { el.title = hostName(); });
 
-    const request = ({ method = "POST", url, data = null, headers = {}, withCredentials = false, responseType }) => {
+    const request = async ({ method = "POST", url, data = null, headers = {}, withCredentials = false, responseType }) => {
         if ((m => m === "fetch" || m === "auto" && isSafari)(get("reqMode", "auto"))) return fetch(url, { method, body: data, credentials: "omit", headers }).then(r => r.ok ? r.json() : Promise.reject(Object.assign(new Error(`HTTP ${r.status}`), { status: r.status })));
-        return new Promise((resolve, reject) => GM_xmlhttpRequest({
-            method, url, data, headers, withCredentials, responseType,
-            onload: r => {
-                try {
-                    const body = responseType === "json" ? r.response : JSON.parse(r.responseText);
-                    r.status >= 200 && r.status < 300 ? resolve(body) : reject(Object.assign(new Error(`HTTP ${r.status}`), { status: r.status, response: body }));
-                } catch { reject(new Error(`解析响应失败: ${r.responseText}`)); }
-            },
-            onerror: reject
-        }));
+        
+        const r = await net.gmFetch({ method, url, data, headers, withCredentials, responseType });
+        try {
+            const body = responseType === "json" ? r.response : JSON.parse(r.responseText);
+            if (r.status >= 200 && r.status < 300) return body;
+            throw Object.assign(new Error(`HTTP ${r.status}`), { status: r.status, response: body });
+        } catch (e) {
+            if (e.status) throw e;
+            throw new Error(`解析响应失败: ${r.responseText}`);
+        }
     };
 
     const nodeToken = async () => {
@@ -1431,7 +1524,7 @@
 
     // 等级标签
 
-    const LV_COLORS = ["#c7c2c2","#ffb74d","#ff9400","#ff5252","#e53935","#ab47bc","#8e24aa","#42a5f5","#1e88e5","#66bb6a","#2e7d32","#ffca28","#ffb300","#b388ff","#7c4dff","#000"];
+    const LV_COLORS = ["#c7c2c2", "#ffb74d", "#ff9400", "#ff5252", "#e53935", "#ab47bc", "#8e24aa", "#42a5f5", "#1e88e5", "#66bb6a", "#2e7d32", "#ffca28", "#ffb300", "#b388ff", "#7c4dff", "#000"];
     const CSS$3 = `.role-tag.user-level{background:#000;border-color:#000;color:#ffd700}${LV_COLORS.map((c, i) => `.role-tag.user-lv${i}{background:${c};border-color:${c};color:#fafafa}`).join("")}.user-reg-info{margin-left:6px;font-size:12px;font-weight:600}`;
 
     const SEL_COMMENT = "#nsk-body .comment-container .content-item";
@@ -1468,7 +1561,8 @@
         const days = Math.floor((Date.now() - new Date(user.created_at)) / 864e5);
         const alarm = ctx.store.get("level_tag.low_lv_alarm") && days < ctx.store.get("level_tag.low_lv_max_days", 30) ? "⚠️" : "";
         const coin = user.coin < 0 ? 0 : user.coin;
-        const rank = Math.floor(Math.sqrt(coin) / 10);
+        const calcRank = ctx.store.get("level_tag.calc_rank", false);
+        const rank = calcRank ? Math.floor(Math.sqrt(coin) / 10) : (user.rank !== undefined ? user.rank : Math.floor(Math.sqrt(coin) / 10));
         const span = document.createElement("span");
         if (mode === "inline") {
             const f = n => (n ?? 0).toLocaleString();
@@ -1491,14 +1585,19 @@
     const levelTag = {
         id: "levelTag",
         order: 260,
-        cfg: { level_tag: { enabled: true, comment_enabled: true, show_detail: false, low_lv_alarm: true, low_lv_max_days: 30, cache_ttl: 5 } },
-        meta: { level_tag: { label: "等级标签", group: "显示设置", fields: {
-            show_detail: { type: "SWITCH", label: "详细信息", desc: "在用户名后直接显示注册天数、发帖数等详细数据" },
-            comment_enabled: { type: "SWITCH", label: "评论等级" },
-            low_lv_alarm: { type: "SWITCH", label: "低等级警告" },
-            low_lv_max_days: { type: "NUMBER", label: "注册天数", valueType: "number", desc: "低于此天数的新注册用户将显示 ⚠️ 警告图标" },
-            cache_ttl: { type: "NUMBER", label: "缓存时间(分钟)", valueType: "number", desc: "同一用户的等级信息在内存中保留的时间，避免重复请求" }
-        } } },
+        cfg: { level_tag: { enabled: true, calc_rank: false, comment_enabled: true, show_detail: false, low_lv_alarm: true, low_lv_max_days: 30, cache_ttl: 5 } },
+        meta: {
+            level_tag: {
+                label: "等级标签", group: "显示设置", fields: {
+                    calc_rank: { type: "SWITCH", label: "肝帝显形", desc: "开启时根据鸡腿数计算并显示等级，关闭时显示真实等级" },
+                    show_detail: { type: "SWITCH", label: "详细信息", desc: "在用户名后直接显示注册天数、发帖数等详细数据" },
+                    comment_enabled: { type: "SWITCH", label: "评论等级", desc: "开启后会在评论列表显示等级标签" },
+                    low_lv_alarm: { type: "SWITCH", label: "低等级警告", desc: "在注册天数低于设定值时，用户名前显示 ⚠️ 警告图标" },
+                    low_lv_max_days: { type: "NUMBER", label: "注册天数", valueType: "number", desc: "低于此天数的用户将显示 ⚠️ 警告图标" },
+                    cache_ttl: { type: "NUMBER", label: "缓存时间(分钟)", valueType: "number", desc: "同一用户的等级信息在内存中保留的时间，避免重复请求" }
+                }
+            }
+        },
         match: ctx => ctx.loggedIn && ctx.isPost && ctx.store.get("level_tag.enabled", true),
         async init(ctx) {
             addStyle("nsx-lv", CSS$3);
@@ -1728,13 +1827,15 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
     function resolveShort(href) {
         if (!shortCache.has(href)) {
             shortCache.set(href, new Promise(resolve => {
-                const fallback = () => m === 'HEAD' ? try_('GET') : resolve({ ok: false, url: href });
-                const try_ = m => GM_xmlhttpRequest({
-                    method: m, url: href, timeout: 10000,
-                    onload: r => resolve({ ok: true, url: r.finalUrl || href }),
-                    onerror: fallback,
-                    ontimeout: fallback
-                });
+                const fallback = (m) => m === 'HEAD' ? try_('GET') : resolve({ ok: false, url: href });
+                const try_ = async m => {
+                    try {
+                        const r = await net.gmFetch({ method: m, url: href, timeout: 10000 });
+                        resolve({ ok: true, url: r.finalUrl || href });
+                    } catch {
+                        fallback(m);
+                    }
+                };
                 try_('HEAD');
             }));
         }
@@ -1987,10 +2088,17 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
                     }
                     else if (f.type === "SELECT" && f.options) {
                         inp = el("select", "", blk); inp.name = path;
+                        if (f.search) inp.setAttribute("lay-search", "");
+                        if (f.creatable) inp.setAttribute("lay-creatable", "");
+                        let matched = false;
                         f.options.forEach(opt => {
                             const o = el("option", "", inp); o.value = opt.value; o.textContent = opt.text;
-                            if (String(val) === String(opt.value)) o.setAttribute("selected", "");
+                            if (String(val) === String(opt.value)) { o.setAttribute("selected", ""); matched = true; }
                         });
+                        if (!matched && val !== undefined && val !== null && val !== "") {
+                            const o = el("option", "", inp); o.value = val; o.textContent = val;
+                            o.setAttribute("selected", "");
+                        }
                     }
                     else if (f.type === "COLOR") {
                         const inpWrap = el("div", "layui-input-inline", blk); inpWrap.style.width = "100px";
@@ -1999,6 +2107,13 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
                         const cpWrap = el("div", "layui-inline", blk); cpWrap.style.left = "-11px";
                         const wrap = el("div", "", cpWrap);
                         wrap.dataset.colorPath = path; wrap.dataset.colorVal = val ?? ""; wrap.dataset.colorInp = inp.name; wrap.dataset.colorDefault = f.defaultVal ?? "";
+                    }
+                    else if (f.type === "SLIDER") {
+                        const innerWrap = el("div", "", blk, "display:flex;align-items:center;min-height:38px;padding-right:15px;");
+                        const sliderWrap = el("div", "", innerWrap, "flex:1;");
+                        Object.assign(sliderWrap.dataset, { sliderPath: path, sliderVal: val ?? f.defaultVal ?? 0, sliderMin: f.min ?? 0, sliderMax: f.max ?? 100, sliderStep: f.step ?? 1, sliderUnit: f.unit ?? "" });
+                        if (f.tipsAlways) sliderWrap.dataset.sliderTipsAlways = "1";
+                        inp = Object.assign(el("input", "", innerWrap), { type: "hidden", name: path, value: val ?? f.defaultVal ?? 0 });
                     }
                     else if (f.type === "BUTTON") {
                         inp = el("button", "layui-btn layui-btn-primary layui-btn-sm", blk);
@@ -2031,7 +2146,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
                     const cols = m.cols || 1, defaultCol = Math.floor(12 / cols);
                     Object.keys(cfg).filter(k => k !== "enabled" && !isObj(cfg[k]) && !hidden.has(k)).forEach(k => {
                         const fm = fields[k] || {};
-                        const f = { key: k, label: fm.label || k, type: inferType(cfg[k], fm), options: fm.options, placeholder: fm.placeholder, valueType: inferVT(cfg[k], fm), col: fm.col, defaultVal: cfg[k], action: fm.action, buttonText: fm.buttonText, desc: fm.desc };
+                        const f = { key: k, label: fm.label || k, type: inferType(cfg[k], fm), options: fm.options, placeholder: fm.placeholder, valueType: inferVT(cfg[k], fm), col: fm.col, defaultVal: cfg[k], action: fm.action, buttonText: fm.buttonText, desc: fm.desc, search: fm.search, creatable: fm.creatable, min: fm.min, max: fm.max, step: fm.step, unit: fm.unit, tipsAlways: fm.tipsAlways };
                         const cur = store.get(`${base}.${k}`, cfg[k]);
                         const fe = makeField(f, `${base}.${k}`, cur, defaultCol);
                         if (fe) body.appendChild(fe);
@@ -2106,6 +2221,13 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
                                 render(init);
                             });
                         });
+                        window.layui.use("slider", () => r?.querySelectorAll?.("[data-slider-path]").forEach(w => {
+                            const d = w.dataset, i = w.parentElement.querySelector(`input[name="${d.sliderPath}"]`);
+                            window.layui.slider.render({
+                                elem: w, value: +d.sliderVal || 0, min: +d.sliderMin || 0, max: +d.sliderMax || 100, step: +d.sliderStep || 1,
+                                tipsAlways: !!d.sliderTipsAlways, setTips: v => v + (d.sliderUnit || ""), change: v => { if (i) i.value = v; }
+                            });
+                        }));
                     },
                     yes: (idx, ly) => {
                         const r = ly?.[0] || ly, sc = r?.querySelector ? r : document;
@@ -2201,10 +2323,32 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
             if (!editor || !parent || !group) return;
             let open = false;
 
+            const startDrag = e => {
+                if (e.button || e.target.closest("button,a,input,svg")) return;
+                e.preventDefault();
+                const rect = editor.getBoundingClientRect();
+                const [ox, oy] = [e.clientX - rect.left, e.clientY - rect.top];
+                editor.style.top = `${rect.top}px`;
+                editor.style.bottom = "auto";
+                const onMove = ev => {
+                    const maxX = innerWidth - editor.offsetWidth, maxY = innerHeight - editor.offsetHeight;
+                    editor.style.left = `${Math.max(0, Math.min(ev.clientX - ox, maxX))}px`;
+                    editor.style.top = `${Math.max(0, Math.min(ev.clientY - oy, maxY))}px`;
+                };
+                const onUp = () => {
+                    removeEventListener("mousemove", onMove);
+                    removeEventListener("mouseup", onUp);
+                };
+                addEventListener("mousemove", onMove);
+                addEventListener("mouseup", onUp);
+            };
+
             const show = e => {
                 if (open) return;
                 e?.preventDefault?.();
                 editor.style.cssText = `position:fixed;bottom:0;margin:0;width:100%;max-width:${editor.clientWidth || 720}px;z-index:999`;
+                const bar = editor.querySelector(".tab-select.window_header");
+                if (bar) { bar.style.cursor = "move"; bar.onmousedown = startDrag; }
                 addClose();
                 open = true;
             };
@@ -2230,7 +2374,12 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
                     sp.classList.replace("i-icon-full-screen-one", "i-icon-close");
                     sp.innerHTML = `<svg width="16" height="16" viewBox="0 0 48 48" fill="none"><path d="M8 8L40 40M8 40L40 8" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
                 }
-                cb.onclick = () => { editor.style.cssText = ""; cb.remove(); open = false; };
+                cb.onclick = () => {
+                    editor.style.cssText = "";
+                    const bar = editor.querySelector(".tab-select.window_header");
+                    if (bar) { bar.style.cursor = ""; bar.onmousedown = null; }
+                    cb.remove(); open = false;
+                };
                 tb.after(cb);
             }
         }

@@ -1,5 +1,5 @@
 // 链接净化器 — DSL 规则引擎 / 去跳板 / 短链解析 / 外链标记
-import { addStyle } from "../core.js";
+import { addStyle, net } from "../core.js";
 
 /* ── 默认规则 (DSL 文本) ── */
 const DEFAULT_RULES = `
@@ -152,13 +152,15 @@ const shortCache = new Map();
 function resolveShort(href) {
     if (!shortCache.has(href)) {
         shortCache.set(href, new Promise(resolve => {
-            const fallback = () => m === 'HEAD' ? try_('GET') : resolve({ ok: false, url: href });
-            const try_ = m => GM_xmlhttpRequest({
-                method: m, url: href, timeout: 10000,
-                onload: r => resolve({ ok: true, url: r.finalUrl || href }),
-                onerror: fallback,
-                ontimeout: fallback
-            });
+            const fallback = (m) => m === 'HEAD' ? try_('GET') : resolve({ ok: false, url: href });
+            const try_ = async m => {
+                try {
+                    const r = await net.gmFetch({ method: m, url: href, timeout: 10000 });
+                    resolve({ ok: true, url: r.finalUrl || href });
+                } catch {
+                    fallback(m);
+                }
+            };
             try_('HEAD');
         }));
     }
