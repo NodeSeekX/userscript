@@ -2,7 +2,7 @@
 import { addStyle, net } from "../core.js";
 
 const LV_COLORS = ["#c7c2c2", "#ffb74d", "#ff9400", "#ff5252", "#e53935", "#ab47bc", "#8e24aa", "#42a5f5", "#1e88e5", "#66bb6a", "#2e7d32", "#ffca28", "#ffb300", "#b388ff", "#7c4dff", "#000"];
-const CSS = `.role-tag.user-level{background:#000;border-color:#000;color:#ffd700}${LV_COLORS.map((c, i) => `.role-tag.user-lv${i}{background:${c};border-color:${c};color:#fafafa}`).join("")}.user-reg-info{margin-left:6px;font-size:12px;font-weight:600}`;
+const CSS = `.role-tag.user-level{background:#000;border-color:#000;color:#ffd700}${LV_COLORS.map((c, i) => `.role-tag.user-lv${i}{background:${c};border-color:${c};color:#fafafa}`).join("")}.user-reg-info{display:inline-flex;align-items:center;flex-wrap:wrap;gap:4px 6px;padding:2px 8px;margin-bottom:6px;font-size:11px;line-height:1.4;color:#64748b;background:rgba(125,125,125,.08);border:1px solid rgba(125,125,125,.12);border-radius:6px;width:fit-content;max-width:100%;box-sizing:border-box}body.dark-layout .user-reg-info{color:#94a3b8;background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.08)}.user-reg-item{display:inline-flex;align-items:center;gap:2px}.user-reg-label{opacity:.75;font-size:10.5px}.user-reg-icon{font-size:11px}.user-reg-val{font-weight:600;color:#334155}body.dark-layout .user-reg-val{color:#cbd5e1}.user-reg-sep{color:rgba(125,125,125,.35);font-size:10px;user-select:none}.user-reg-info,.user-reg-info *{transition:color .2s,background-color .2s,border-color .2s,opacity .2s}.user-reg-info:hover{color:#334155;background:rgba(125,125,125,.16);border-color:rgba(125,125,125,.3)}.user-reg-info:hover .user-reg-label{opacity:1}.user-reg-info:hover .user-reg-val{color:#0f172a}.user-reg-info:hover .user-reg-sep{color:rgba(125,125,125,.7)}body.dark-layout .user-reg-info:hover{color:#cbd5e1;background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.22)}body.dark-layout .user-reg-info:hover .user-reg-val{color:#f1f5f9}`;
 
 const SEL_COMMENT = "#nsk-body .comment-container .content-item";
 const SEL_ANCHOR = ".nsk-content-meta-info .author-info>a";
@@ -40,19 +40,29 @@ function createEl(ctx, user, mode, username) {
     const coin = user.coin < 0 ? 0 : user.coin;
     const calcRank = ctx.store.get("level_tag.calc_rank", false);
     const rank = calcRank ? Math.floor(Math.sqrt(coin) / 10) : (user.rank !== undefined ? user.rank : Math.floor(Math.sqrt(coin) / 10));
-    const span = document.createElement("span");
     if (mode === "inline") {
         const f = n => (n ?? 0).toLocaleString();
-        span.className = "user-reg-info";
-        span.style.color = LV_COLORS[rank] || LV_COLORS[15];
-        if (username) span.dataset.user = username;
-        span.textContent = ` · ${alarm ? alarm + " " : ""}${f(days)} 天 · 帖 ${f(user.nPost)} · 评 ${f(user.nComment)} · 🍗 ${f(user.coin)} · ✨ ${f(user.stardust)} · 粉 ${f(user.fans)}`;
-    } else {
-        span.className = `nsk-badge role-tag user-level user-lv${rank}`;
-        span.innerHTML = `<span>${alarm}Lv ${rank}</span>`;
-        span.onmouseenter = () => ctx.ui.tips?.(`注册 <span class="layui-badge">${days}</span> 天；帖子 ${user.nPost}；评论 ${user.nComment}`, span, { tips: 3, time: 0 });
-        span.onmouseleave = () => ctx.ui.layer?.closeAll?.();
+        const div = document.createElement("div");
+        div.className = "user-reg-info";
+        if (username) div.dataset.user = username;
+        const items = [
+            { label: "注册", val: `${f(days)}天` },
+            { label: "帖", val: f(user.nPost) },
+            { label: "评", val: f(user.nComment) },
+            { icon: "🍗", val: f(user.coin) },
+            { icon: "✨", val: f(user.stardust) },
+            { label: "粉", val: f(user.fans) }
+        ];
+        div.innerHTML = items.map(item =>
+            `<span class="user-reg-item">${item.icon ? `<span class="user-reg-icon">${item.icon}</span>` : `<span class="user-reg-label">${item.label}</span>`}<span class="user-reg-val">${item.val}</span></span>`
+        ).join('<span class="user-reg-sep">|</span>');
+        return div;
     }
+    const span = document.createElement("span");
+    span.className = `nsk-badge role-tag user-level user-lv${rank}`;
+    span.innerHTML = `<span>${alarm}Lv ${rank}</span>`;
+    span.onmouseenter = () => ctx.ui.tips?.(`注册 <span class="layui-badge">${days}</span> 天；帖子 ${user.nPost}；评论 ${user.nComment}`, span, { tips: 3, time: 0 });
+    span.onmouseleave = () => ctx.ui.layer?.closeAll?.();
     return span;
 }
 
@@ -82,12 +92,15 @@ export default {
         const detail = ctx.store.get("level_tag.show_detail", false);
 
         const insertFor = (container, user, anchor) => {
-            const tag = createEl(ctx, user, "tag");
-            anchor?.after(tag);
+            if (!anchor?.nextElementSibling?.classList?.contains("user-level")) {
+                const tag = createEl(ctx, user, "tag");
+                anchor?.after(tag);
+            }
             if (detail) {
-                const info = anchor?.closest(".author-info");
+                const meta = anchor?.closest(".nsk-content-meta-info");
+                if (meta && meta.previousElementSibling?.classList?.contains("user-reg-info")) return;
                 const dl = createEl(ctx, user, "inline", anchor?.textContent?.trim());
-                if (info) info.appendChild(dl); else tag.after(dl);
+                if (meta) meta.before(dl); else anchor?.after(dl);
             }
         };
 

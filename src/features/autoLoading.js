@@ -9,10 +9,12 @@ const PROFILES = {
 export default {
     id: "autoLoading",
     order: 100,
-    cfg: { loading_post: { enabled: true }, loading_comment: { enabled: true, nested: false, interval: 800 } },
-    meta: { loading_post: { label: "加载帖子", group: "内容设置" }, loading_comment: { label: "加载评论", group: "内容设置", fields: { nested: { label: "楼中楼" }, interval: { label: "请求间隔", type: "SLIDER", min: 100, max: 1500, step: 100, unit: "ms", valueType: "number", tipsAlways: true, desc: "拉取下一页楼层时的等待时间。调大可防由于请求过快被服务器拦截。" } } } },
+    cfg: { loading_post: { enabled: true }, loading_comment: { enabled: true, nested: false, interval: 800, hide_signature: false } },
+    meta: { loading_post: { label: "加载帖子", group: "内容设置" }, loading_comment: { label: "加载评论", group: "内容设置", fields: { nested: { label: "楼中楼" }, interval: { label: "请求间隔", type: "SLIDER", min: 100, max: 1500, step: 100, unit: "ms", valueType: "number", tipsAlways: true, desc: "拉取下一页楼层时的等待时间。调大可防由于请求过快被服务器拦截。" }, hide_signature: { label: "隐藏签名", desc: "隐藏评论区用户的个性签名" } } } },
     match: ctx => ctx.store.get("loading_post.enabled", true) || ctx.store.get("loading_comment.enabled", true),
     init(ctx) {
+        if (ctx.isPost && ctx.store.get("loading_comment.hide_signature")) addStyle("nsx-hide-signature", ".content-item > .signature{display:none!important}");
+
         const profile = (ctx.isList && ctx.store.get("loading_post.enabled", true)) ? PROFILES.list : 
                         (ctx.isPost && ctx.store.get("loading_comment.enabled", true)) ? PROFILES.post : null;
         if (!profile) return;

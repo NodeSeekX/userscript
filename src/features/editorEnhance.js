@@ -55,7 +55,7 @@ const bindShortcut = (editor) => {
     const getBtn = () => editor.querySelector("button.submit.btn.focus-visible") || document.querySelector(".md-editor button.submit.btn.focus-visible");
     const bind = () => {
         const btn = getBtn();
-        if (btn && !/Ctrl\+Enter/i.test(btn.textContent)) btn.textContent += "(Ctrl+Enter)";
+        if (btn && !/Ctrl\+⏎/i.test(btn.textContent)) btn.textContent += "(Ctrl+⏎)";
         if (btn && !cm.__nsxMap) {
             cm.__nsxMap = { "Ctrl-Enter": () => getBtn()?.click() };
             cm.addKeyMap(cm.__nsxMap);

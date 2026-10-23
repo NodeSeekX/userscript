@@ -168,7 +168,7 @@ export default {
                 return card;
             };
 
-            const orderArr = ["基本设置", "显示设置", "内容设置", "图床设置", "过滤设置", "其他设置", "实验性"];
+            const orderArr = ["基本设置", "显示设置", "内容设置", "图床设置", "过滤设置", "备份设置", "其他设置", "实验性"];
             const groupOrderMap = {};
             orderArr.forEach((g, i) => { groupOrderMap[g.trim()] = i; });
 

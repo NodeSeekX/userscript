@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NodeSeek X
 // @namespace    http://www.nodeseek.com/
-// @version      1.1.6
+// @version      1.1.7
 // @description  增强 NodeSeek/DeepFlood 论坛体验：支持自动签到、下拉加载、快捷评论、图床上传、内容过滤、链接净化、消息提醒、浏览历史等功能，并提供可视化设置面板。
 // @author       dabao
 // @match        *://www.nodeseek.com/*
@@ -182,10 +182,12 @@
     const autoLoading = {
         id: "autoLoading",
         order: 100,
-        cfg: { loading_post: { enabled: true }, loading_comment: { enabled: true, nested: false, interval: 800 } },
-        meta: { loading_post: { label: "加载帖子", group: "内容设置" }, loading_comment: { label: "加载评论", group: "内容设置", fields: { nested: { label: "楼中楼" }, interval: { label: "请求间隔", type: "SLIDER", min: 100, max: 1500, step: 100, unit: "ms", valueType: "number", tipsAlways: true, desc: "拉取下一页楼层时的等待时间。调大可防由于请求过快被服务器拦截。" } } } },
+        cfg: { loading_post: { enabled: true }, loading_comment: { enabled: true, nested: false, interval: 800, hide_signature: false } },
+        meta: { loading_post: { label: "加载帖子", group: "内容设置" }, loading_comment: { label: "加载评论", group: "内容设置", fields: { nested: { label: "楼中楼" }, interval: { label: "请求间隔", type: "SLIDER", min: 100, max: 1500, step: 100, unit: "ms", valueType: "number", tipsAlways: true, desc: "拉取下一页楼层时的等待时间。调大可防由于请求过快被服务器拦截。" }, hide_signature: { label: "隐藏签名", desc: "隐藏评论区用户的个性签名" } } } },
         match: ctx => ctx.store.get("loading_post.enabled", true) || ctx.store.get("loading_comment.enabled", true),
         init(ctx) {
+            if (ctx.isPost && ctx.store.get("loading_comment.hide_signature")) addStyle("nsx-hide-signature", ".content-item > .signature{display:none!important}");
+
             const profile = (ctx.isList && ctx.store.get("loading_post.enabled", true)) ? PROFILES.list : 
                             (ctx.isPost && ctx.store.get("loading_comment.enabled", true)) ? PROFILES.post : null;
             if (!profile) return;
@@ -385,6 +387,117 @@
         default: autoLoading
     }, Symbol.toStringTag, { value: 'Module' }));
 
+    // 云端备份模块 (Gist / WebDAV)
+    /* global GM_getValue, GM_setValue */
+
+    const GIST_API = "https://api.github.com/gists";
+    const FILE = "nsx_config.json";
+    const KEEP = ["backup_gist", "backup_webdav"]; // 凭据不上传，恢复时保留本地值
+
+    const btns = key => ({
+        btn_up: { label: "备份", type: "BUTTON", buttonText: "⬆️ 立即备份", action: `nsx-backup-${key}-up`, col: 6 },
+        btn_down: { label: "恢复", type: "BUTTON", buttonText: "⬇️ 立即恢复", action: `nsx-backup-${key}-down`, col: 6 }
+    });
+
+    const dump = () => {
+        const s = { ...GM_getValue("settings", {}) };
+        KEEP.forEach(k => delete s[k]);
+        return JSON.stringify(s, null, 2);
+    };
+
+    const load = text => {
+        const conf = JSON.parse(text);
+        if (!conf || typeof conf !== "object" || Array.isArray(conf)) throw new Error("备份内容无效");
+        const cur = GM_getValue("settings", {});
+        KEEP.forEach(k => cur[k] && (conf[k] = cur[k]));
+        GM_setValue("settings", conf);
+    };
+
+    const ok = res => {
+        if (res.status < 400) return res;
+        let msg; try { msg = JSON.parse(res.response).message; } catch { }
+        throw new Error(msg || `HTTP ${res.status}`);
+    };
+
+    const providers$1 = {
+        async gist(ctx, up, val) {
+            const token = val("backup_gist.gist_token"), id = val("backup_gist.gist_id");
+            if (!token) throw new Error("未填写 Gist Token");
+            const headers = { Authorization: `token ${token}`, Accept: "application/vnd.github+json" };
+            if (up) {
+                const data = JSON.stringify({ description: "NodeSeek X Settings", files: { [FILE]: { content: dump() } } });
+                const res = ok(await ctx.net.gmFetch({ method: id ? "PATCH" : "POST", url: id ? `${GIST_API}/${id}` : GIST_API, headers, data }));
+                if (id) return;
+                const newId = JSON.parse(res.response).id;
+                ctx.store.set("backup_gist.gist_id", newId);
+                const el = document.querySelector('[name="backup_gist.gist_id"]');
+                if (el) el.value = newId;
+            } else {
+                if (!id) throw new Error("未填写 Gist ID");
+                const res = ok(await ctx.net.gmFetch({ method: "GET", url: `${GIST_API}/${id}`, headers }));
+                const content = JSON.parse(res.response).files?.[FILE]?.content;
+                if (!content) throw new Error(`Gist 中未找到 ${FILE}`);
+                load(content);
+            }
+        },
+        async webdav(ctx, up, val) {
+            const dir = val("backup_webdav.webdav_url"), user = val("backup_webdav.webdav_user"), pass = val("backup_webdav.webdav_pass");
+            if (!dir || !user || !pass) throw new Error("WebDAV 信息不完整");
+            const url = dir.replace(/\/*$/, "/") + FILE;
+            const headers = { Authorization: `Basic ${btoa(`${user}:${pass}`)}` };
+            if (up) ok(await ctx.net.gmFetch({ method: "PUT", url, headers: { ...headers, "Content-Type": "application/json" }, data: dump() }));
+            else load(ok(await ctx.net.gmFetch({ method: "GET", url, headers })).response);
+        }
+    };
+
+    const backup = {
+        id: "backup",
+        order: 150,
+        cfg: {
+            backup_gist: { gist_token: "", gist_id: "", btn_up: "", btn_down: "" },
+            backup_webdav: { webdav_url: "", webdav_user: "", webdav_pass: "", btn_up: "", btn_down: "" }
+        },
+        meta: {
+            backup_gist: {
+                group: "备份设置", label: "GitHub Gist",
+                fields: {
+                    gist_token: { label: "Token", placeholder: "GitHub PAT（需 gist 权限）" },
+                    gist_id: { label: "Gist ID", placeholder: "留空自动创建" },
+                    ...btns("gist")
+                }
+            },
+            backup_webdav: {
+                group: "备份设置", label: "WebDAV",
+                fields: {
+                    webdav_url: { label: "目录", placeholder: "如 https://dav.jianguoyun.com/dav/NSX/", desc: `需为已存在的目录，备份文件名为 ${FILE}` },
+                    webdav_user: { label: "账号" },
+                    webdav_pass: { label: "密码" },
+                    ...btns("webdav")
+                }
+            }
+        },
+        init(ctx) {
+            const val = k => document.querySelector(`[name="${k}"]`)?.value ?? ctx.store.get(k);
+            document.addEventListener("nsx-action", async ({ detail }) => {
+                const [, type, dir] = /^nsx-backup-(gist|webdav)-(up|down)$/.exec(detail) || [];
+                if (!type) return;
+                const up = dir === "up";
+                if (!up && !confirm("将覆盖本地全部配置，确定恢复？")) return;
+                const idx = ctx.ui.toast(up ? "正在备份..." : "正在恢复...");
+                const err = await providers$1[type](ctx, up, val).then(() => null, e => e);
+                ctx.ui.layer?.close(idx);
+                if (err) return ctx.ui.error(`操作失败：${err.message}`);
+                ctx.ui.success(up ? "备份成功" : "恢复成功，即将刷新");
+                if (!up) setTimeout(() => location.reload(), 1500);
+            });
+        }
+    };
+
+    const __vite_glob_0_1 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+        __proto__: null,
+        default: backup
+    }, Symbol.toStringTag, { value: 'Module' }));
+
     // 屏蔽用户
 
     const blockMembers = {
@@ -424,7 +537,7 @@
         }
     };
 
-    const __vite_glob_0_1 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_2 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: blockMembers
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -452,7 +565,7 @@
         watch: ctx => ({ sel: ".post-list-item", fn: els => run$1(els, ctx), opts: { debounce: 80 } })
     };
 
-    const __vite_glob_0_2 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_3 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: blockPosts
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -481,7 +594,7 @@
         watch: ctx => ({ sel: '.post-list-item use[href="#lock"]', fn: els => run(els, ctx), opts: { debounce: 80 } })
     };
 
-    const __vite_glob_0_3 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_4 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: blockViewLevel
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -532,7 +645,7 @@
         })
     };
 
-    const __vite_glob_0_4 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_5 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: codeHighlight
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -840,7 +953,7 @@
         })
     };
 
-    const __vite_glob_0_5 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_6 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: commentFootprint
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -863,7 +976,7 @@
         }
     };
 
-    const __vite_glob_0_6 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_7 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: darkMode
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -924,7 +1037,7 @@
         const getBtn = () => editor.querySelector("button.submit.btn.focus-visible") || document.querySelector(".md-editor button.submit.btn.focus-visible");
         const bind = () => {
             const btn = getBtn();
-            if (btn && !/Ctrl\+Enter/i.test(btn.textContent)) btn.textContent += "(Ctrl+Enter)";
+            if (btn && !/Ctrl\+⏎/i.test(btn.textContent)) btn.textContent += "(Ctrl+⏎)";
             if (btn && !cm.__nsxMap) {
                 cm.__nsxMap = { "Ctrl-Enter": () => getBtn()?.click() };
                 cm.addKeyMap(cm.__nsxMap);
@@ -1038,7 +1151,7 @@
         watch: ctx => [{ sel: ".md-editor", fn: () => createInserters(ctx), opts: { debounce: 80 } }]
     };
 
-    const __vite_glob_0_7 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_8 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: editorEnhance
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -1168,7 +1281,7 @@
         }
     };
 
-    const __vite_glob_0_8 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_9 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: history$1
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -1203,7 +1316,7 @@
         watch: ctx => ({ sel: "article.post-content img:not(.sticker)", fn: els => bind(els, ctx), opts: { debounce: 80 } })
     };
 
-    const __vite_glob_0_9 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_10 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: imageSlide
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -1487,7 +1600,7 @@
         })
     };
 
-    const __vite_glob_0_10 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_11 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: imageUpload
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -1517,7 +1630,7 @@
         }
     };
 
-    const __vite_glob_0_11 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_12 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: instantPage
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -1525,7 +1638,7 @@
     // 等级标签
 
     const LV_COLORS = ["#c7c2c2", "#ffb74d", "#ff9400", "#ff5252", "#e53935", "#ab47bc", "#8e24aa", "#42a5f5", "#1e88e5", "#66bb6a", "#2e7d32", "#ffca28", "#ffb300", "#b388ff", "#7c4dff", "#000"];
-    const CSS$3 = `.role-tag.user-level{background:#000;border-color:#000;color:#ffd700}${LV_COLORS.map((c, i) => `.role-tag.user-lv${i}{background:${c};border-color:${c};color:#fafafa}`).join("")}.user-reg-info{margin-left:6px;font-size:12px;font-weight:600}`;
+    const CSS$3 = `.role-tag.user-level{background:#000;border-color:#000;color:#ffd700}${LV_COLORS.map((c, i) => `.role-tag.user-lv${i}{background:${c};border-color:${c};color:#fafafa}`).join("")}.user-reg-info{display:inline-flex;align-items:center;flex-wrap:wrap;gap:4px 6px;padding:2px 8px;margin-bottom:6px;font-size:11px;line-height:1.4;color:#64748b;background:rgba(125,125,125,.08);border:1px solid rgba(125,125,125,.12);border-radius:6px;width:fit-content;max-width:100%;box-sizing:border-box}body.dark-layout .user-reg-info{color:#94a3b8;background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.08)}.user-reg-item{display:inline-flex;align-items:center;gap:2px}.user-reg-label{opacity:.75;font-size:10.5px}.user-reg-icon{font-size:11px}.user-reg-val{font-weight:600;color:#334155}body.dark-layout .user-reg-val{color:#cbd5e1}.user-reg-sep{color:rgba(125,125,125,.35);font-size:10px;user-select:none}.user-reg-info,.user-reg-info *{transition:color .2s,background-color .2s,border-color .2s,opacity .2s}.user-reg-info:hover{color:#334155;background:rgba(125,125,125,.16);border-color:rgba(125,125,125,.3)}.user-reg-info:hover .user-reg-label{opacity:1}.user-reg-info:hover .user-reg-val{color:#0f172a}.user-reg-info:hover .user-reg-sep{color:rgba(125,125,125,.7)}body.dark-layout .user-reg-info:hover{color:#cbd5e1;background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.22)}body.dark-layout .user-reg-info:hover .user-reg-val{color:#f1f5f9}`;
 
     const SEL_COMMENT = "#nsk-body .comment-container .content-item";
     const SEL_ANCHOR = ".nsk-content-meta-info .author-info>a";
@@ -1563,19 +1676,29 @@
         const coin = user.coin < 0 ? 0 : user.coin;
         const calcRank = ctx.store.get("level_tag.calc_rank", false);
         const rank = calcRank ? Math.floor(Math.sqrt(coin) / 10) : (user.rank !== undefined ? user.rank : Math.floor(Math.sqrt(coin) / 10));
-        const span = document.createElement("span");
         if (mode === "inline") {
             const f = n => (n ?? 0).toLocaleString();
-            span.className = "user-reg-info";
-            span.style.color = LV_COLORS[rank] || LV_COLORS[15];
-            if (username) span.dataset.user = username;
-            span.textContent = ` · ${alarm ? alarm + " " : ""}${f(days)} 天 · 帖 ${f(user.nPost)} · 评 ${f(user.nComment)} · 🍗 ${f(user.coin)} · ✨ ${f(user.stardust)} · 粉 ${f(user.fans)}`;
-        } else {
-            span.className = `nsk-badge role-tag user-level user-lv${rank}`;
-            span.innerHTML = `<span>${alarm}Lv ${rank}</span>`;
-            span.onmouseenter = () => ctx.ui.tips?.(`注册 <span class="layui-badge">${days}</span> 天；帖子 ${user.nPost}；评论 ${user.nComment}`, span, { tips: 3, time: 0 });
-            span.onmouseleave = () => ctx.ui.layer?.closeAll?.();
+            const div = document.createElement("div");
+            div.className = "user-reg-info";
+            if (username) div.dataset.user = username;
+            const items = [
+                { label: "注册", val: `${f(days)}天` },
+                { label: "帖", val: f(user.nPost) },
+                { label: "评", val: f(user.nComment) },
+                { icon: "🍗", val: f(user.coin) },
+                { icon: "✨", val: f(user.stardust) },
+                { label: "粉", val: f(user.fans) }
+            ];
+            div.innerHTML = items.map(item =>
+                `<span class="user-reg-item">${item.icon ? `<span class="user-reg-icon">${item.icon}</span>` : `<span class="user-reg-label">${item.label}</span>`}<span class="user-reg-val">${item.val}</span></span>`
+            ).join('<span class="user-reg-sep">|</span>');
+            return div;
         }
+        const span = document.createElement("span");
+        span.className = `nsk-badge role-tag user-level user-lv${rank}`;
+        span.innerHTML = `<span>${alarm}Lv ${rank}</span>`;
+        span.onmouseenter = () => ctx.ui.tips?.(`注册 <span class="layui-badge">${days}</span> 天；帖子 ${user.nPost}；评论 ${user.nComment}`, span, { tips: 3, time: 0 });
+        span.onmouseleave = () => ctx.ui.layer?.closeAll?.();
         return span;
     }
 
@@ -1605,12 +1728,15 @@
             const detail = ctx.store.get("level_tag.show_detail", false);
 
             const insertFor = (container, user, anchor) => {
-                const tag = createEl(ctx, user, "tag");
-                anchor?.after(tag);
+                if (!anchor?.nextElementSibling?.classList?.contains("user-level")) {
+                    const tag = createEl(ctx, user, "tag");
+                    anchor?.after(tag);
+                }
                 if (detail) {
-                    const info = anchor?.closest(".author-info");
+                    const meta = anchor?.closest(".nsk-content-meta-info");
+                    if (meta && meta.previousElementSibling?.classList?.contains("user-reg-info")) return;
                     const dl = createEl(ctx, user, "inline", anchor?.textContent?.trim());
-                    if (info) info.appendChild(dl); else tag.after(dl);
+                    if (meta) meta.before(dl); else anchor?.after(dl);
                 }
             };
 
@@ -1669,7 +1795,7 @@
         }
     };
 
-    const __vite_glob_0_12 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_13 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: levelTag
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -1980,7 +2106,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_13 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_14 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: linkPurifier
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2154,7 +2280,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
                     return card;
                 };
 
-                const orderArr = ["基本设置", "显示设置", "内容设置", "图床设置", "过滤设置", "其他设置", "实验性"];
+                const orderArr = ["基本设置", "显示设置", "内容设置", "图床设置", "过滤设置", "备份设置", "其他设置", "实验性"];
                 const groupOrderMap = {};
                 orderArr.forEach((g, i) => { groupOrderMap[g.trim()] = i; });
 
@@ -2263,7 +2389,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_14 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_15 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: menus
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2305,7 +2431,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_15 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_16 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: openPostInNewTab
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2385,7 +2511,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_16 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_17 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: quickComment
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2426,7 +2552,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_17 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_18 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: signIn
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2470,7 +2596,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_18 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_19 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: signinTips
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2488,7 +2614,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_19 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_20 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: smoothScroll
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2580,7 +2706,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_20 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_21 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: userCardExt
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2613,7 +2739,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_21 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_22 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: visitedColor
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2678,7 +2804,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         addStyle("nsx-layui-dark", "https://s.cfn.pp.ua/layui/theme-dark/2.10.3/css/layui-theme-dark-selector.css");
 
         // 加载模块
-        const mods = /* #__PURE__ */ Object.assign({"./features/autoLoading.js": __vite_glob_0_0,"./features/blockMembers.js": __vite_glob_0_1,"./features/blockPosts.js": __vite_glob_0_2,"./features/blockViewLevel.js": __vite_glob_0_3,"./features/codeHighlight.js": __vite_glob_0_4,"./features/commentFootprint.js": __vite_glob_0_5,"./features/darkMode.js": __vite_glob_0_6,"./features/editorEnhance.js": __vite_glob_0_7,"./features/history.js": __vite_glob_0_8,"./features/imageSlide.js": __vite_glob_0_9,"./features/imageUpload.js": __vite_glob_0_10,"./features/instantPage.js": __vite_glob_0_11,"./features/levelTag.js": __vite_glob_0_12,"./features/linkPurifier.js": __vite_glob_0_13,"./features/menus.js": __vite_glob_0_14,"./features/openPostInNewTab.js": __vite_glob_0_15,"./features/quickComment.js": __vite_glob_0_16,"./features/signIn.js": __vite_glob_0_17,"./features/signinTips.js": __vite_glob_0_18,"./features/smoothScroll.js": __vite_glob_0_19,"./features/userCardExt.js": __vite_glob_0_20,"./features/visitedColor.js": __vite_glob_0_21});
+        const mods = /* #__PURE__ */ Object.assign({"./features/autoLoading.js": __vite_glob_0_0,"./features/backup.js": __vite_glob_0_1,"./features/blockMembers.js": __vite_glob_0_2,"./features/blockPosts.js": __vite_glob_0_3,"./features/blockViewLevel.js": __vite_glob_0_4,"./features/codeHighlight.js": __vite_glob_0_5,"./features/commentFootprint.js": __vite_glob_0_6,"./features/darkMode.js": __vite_glob_0_7,"./features/editorEnhance.js": __vite_glob_0_8,"./features/history.js": __vite_glob_0_9,"./features/imageSlide.js": __vite_glob_0_10,"./features/imageUpload.js": __vite_glob_0_11,"./features/instantPage.js": __vite_glob_0_12,"./features/levelTag.js": __vite_glob_0_13,"./features/linkPurifier.js": __vite_glob_0_14,"./features/menus.js": __vite_glob_0_15,"./features/openPostInNewTab.js": __vite_glob_0_16,"./features/quickComment.js": __vite_glob_0_17,"./features/signIn.js": __vite_glob_0_18,"./features/signinTips.js": __vite_glob_0_19,"./features/smoothScroll.js": __vite_glob_0_20,"./features/userCardExt.js": __vite_glob_0_21,"./features/visitedColor.js": __vite_glob_0_22});
         Object.values(mods).forEach(m => m.default && define(m.default));
 
         // 创建 Observer & ctx
