@@ -1,5 +1,5 @@
 // 用户卡片扩展 - 跨标签页同步未读消息
-import { $, net } from "../core.js";
+import { $, $$, net } from "../core.js";
 
 class Broadcast {
     static ins = new Map();
@@ -29,28 +29,22 @@ export default {
     match: ctx => ctx.loggedIn && (ctx.isPost || ctx.isList) && ctx.store.get("user_card_ext.enabled", true),
     async init(ctx) {
         const bn = new Broadcast("nsx_notify");
-        let unread = -1, timer = 0, originalTitle = "";
+        const favicons = $$("head link[rel~='icon']").map(icon => [icon, icon.href]);
+        const originalTitle = document.title;
+        let unread = -1;
         const stopNotice = () => {
-            if (!timer) return;
-            clearInterval(timer);
-            timer = 0;
             document.title = originalTitle;
+            favicons.forEach(([icon, href]) => icon.href = href);
         };
         const updateNotice = counts => {
             const next = +counts.all || 0, hasNew = unread >= 0 && next > unread;
             unread = next;
             if (!next) return stopNotice();
-            if (!hasNew || document.hasFocus()) return;
+            if (!hasNew) return;
             stopNotice();
-            originalTitle = document.title;
-            const title = [...`【🔔 新消息】${originalTitle}　`];
-            document.title = title.join("");
-            timer = setInterval(() => {
-                title.push(...title.splice(0, 1));
-                document.title = title.join("");
-            }, 300);
+            document.title = `(${next}) ${originalTitle}`;
+            favicons.forEach(([icon]) => icon.href = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAMAAABEpIrGAAADAFBMVEUAAADS0tLS0tLS0tKakJHS0tLS0tLS0tLS0tLS0tLT09PS0tLT09PS0tLS0tLS0tLS0tLS0tLS0tLT09PS0tLS0tLT09PS0tLS0tLS0tLT09PS0tLT09PS0tIbGxvS0tLS0tLS0tIoGRobGxvS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tIXFxfS0tLS0tIbGxvS0tLS0tIbGxvS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tIbGxvS0tIaGhoaGhobGxvS0tLS0tIZGRnT09PS0tLS0tIZGRkbGxvS0tLS0tLS0tLS0tLS0tLS0tLS0tIbGxsaGhoZGRnS0tLS0tLmABLS0tLS0tLS0tLS0tLS0tIZGRkaGhoZGRnS0tLS0tLS0tLS0tIbGxsYGBgaGhrmABIaGhoZGRkZGRnT09PS0tLmABIbGxsaGhoaGhoaGhoaGhoaGhoaGhobGxvmABLmABIZGRkaGhoaGhoaGhrmABLmABLmABIaGhrS0tLmABIaGhoaGhoaGhobGxsaGhoaGhrmABLmABLmARIZGRkaGhobGxsZGRkaGhrmABLmABIaGhobGxsbGxsbGxsbGxsaGhrmABIaGhrmABLmABLmABLmABLmABIaGhrmABLmABLmABLmBhYbGxvR0dHmABLmABLmABLmABLmABLmABLmABLmABLVuLrkGinTxMXS0tIbGxvmABLT09McHBz////S0tIWFhYZGRn8/Pzi4uKKioomJiYODg76+vpQUFAfHx/+/v5VVVUSEhL19fXv7+9UVFTY2Njp6ekrKyvlCRqjo6Pd3d1wcHB5eXn4+PhFRUWvr686Ojq8vLw/Pz+ampoNDQ0jIyPNzMzBwcFfX19oaGjiKzozMzNYWFhLS0uFhYWAgIDccXrFxcXhOEW4uLiVlZXXpKjWsrXfUVzkGinTw8TZipDdYWvZjpTCq6yKIb56AAAAwHRSTlMADf37AQIEPesV/gf95goTD/AZ+O3N9uNZrdxE8rH9g0AtAvod4SYRucLZmdCn0yPWyUiRfHNoBH869PhV+GC0uzJ3im+Vjoeh6U83COhMEwfxxlIYBRs1HeLeFvMhHpwq2GMMY2Xxqmy3wDAhNSa+pJ4ouA+PzNQ6Rfpc+e8/akuul2+znP5UnSuJBsIydBcihFzL36ijGrgrL1jPCnpr9lDcwuzFf0HIEqFW43q/SVzgrb3qeI2Eez1ePF3J0P7EI/bjAAAA8UlEQVR42u2TrQ4CMQzHK5AI8AiQ4ECcAgEOEiTy3gB5AiSPgEbxKLvuGiSPxPqxsYOEYElost3d+uu/bboD+JsZIW9E7TOSQ3mnfjwAOHu3V4KdGsXbTlTAO7Wky2FzQcUfXD4RI5XgtbRkFs7M1iQmQYJ9YwV80zjPm0gglUIxiNQBqJwTXwRWliOV4HLgYtWzgtUiLdy4iHtYB2vBakDqxSKfbUyzFMVrF966KINCN+VYmD8QlZWAVChJOBMJb0z4WCOmMaWxnDRJiK/ZYCjHG82BOsbrUR4C1DZhpEFGZP66fQXgHfhwib4DfueneAC6x+uQp8GIpgAAAABJRU5ErkJggg==");
         };
-        addEventListener("focus", stopNotice);
 
         const card = $(".user-card .user-stat");
         const last = card?.querySelector(".stat-block:first-child > :last-child");

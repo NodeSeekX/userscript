@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NodeSeek X
 // @namespace    http://www.nodeseek.com/
-// @version      1.1.7
+// @version      1.1.8
 // @description  增强 NodeSeek/DeepFlood 论坛体验：支持自动签到、下拉加载、快捷评论、图床上传、内容过滤、链接净化、消息提醒、浏览历史等功能，并提供可视化设置面板。
 // @author       dabao
 // @match        *://www.nodeseek.com/*
@@ -287,7 +287,9 @@
                         if (s && d) d.innerHTML = s.innerHTML;
                     });
 
-                    history.pushState(null, null, nextUrl);
+                    if (!ctx.isPost || !ctx.store.get("loading_comment.nested")) {
+                        history.pushState(null, null, nextUrl);
+                    }
                 } catch (e) { ctx.env.error("autoLoading", e); }
                 busy = false;
             };
@@ -544,12 +546,12 @@
 
     // 屏蔽帖子（关键词）
 
-    const mark$2 = new WeakSet();
-    const run$1 = (els, ctx) => {
+    const mark$3 = new WeakSet();
+    const run$2 = (els, ctx) => {
         const kws = (ctx.store.get("block_posts.keywords", []) || []).map(k => String(k).trim().toLowerCase()).filter(Boolean);
         els.forEach(item => {
-            if (mark$2.has(item)) return;
-            mark$2.add(item);
+            if (mark$3.has(item)) return;
+            mark$3.add(item);
             const title = item.querySelector(".post-title>a")?.textContent?.toLowerCase() || "";
             if (kws.some(k => title.includes(k))) item.classList.add("blocked-post");
         });
@@ -561,8 +563,8 @@
         cfg: { block_posts: { enabled: true, keywords: [] } },
         meta: { block_posts: { label: "屏蔽帖子", group: "过滤设置", fields: { keywords: { type: "TEXTAREA", label: "关键词", placeholder: "每行一个", valueType: "array" } } } },
         match: ctx => ctx.isList && ctx.store.get("block_posts.enabled", true),
-        init(ctx) { run$1($$(".post-list-item"), ctx); },
-        watch: ctx => ({ sel: ".post-list-item", fn: els => run$1(els, ctx), opts: { debounce: 80 } })
+        init(ctx) { run$2($$(".post-list-item"), ctx); },
+        watch: ctx => ({ sel: ".post-list-item", fn: els => run$2(els, ctx), opts: { debounce: 80 } })
     };
 
     const __vite_glob_0_3 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
@@ -572,13 +574,13 @@
 
     // 屏蔽低等级可见帖子
 
-    const mark$1 = new WeakSet();
-    const run = (els, ctx) => {
+    const mark$2 = new WeakSet();
+    const run$1 = (els, ctx) => {
         const lv = ctx.user?.rank || 0;
         els.forEach(el => {
             const item = el.closest(".post-list-item");
-            if (!item || mark$1.has(item)) return;
-            mark$1.add(item);
+            if (!item || mark$2.has(item)) return;
+            mark$2.add(item);
             const n = +(el.closest("span")?.textContent?.match(/\d+/)?.[0] || 0);
             if (n > lv) item.classList.add("blocked-post");
         });
@@ -590,8 +592,8 @@
         cfg: { block_view_level: { enabled: true } },
         meta: { block_view_level: { label: "隐藏高权限帖", group: "过滤设置" } },
         match: ctx => ctx.isList && ctx.store.get("block_view_level.enabled", true),
-        init(ctx) { run($$('.post-list-item use[href="#lock"]'), ctx); },
-        watch: ctx => ({ sel: '.post-list-item use[href="#lock"]', fn: els => run(els, ctx), opts: { debounce: 80 } })
+        init(ctx) { run$1($$('.post-list-item use[href="#lock"]'), ctx); },
+        watch: ctx => ({ sel: '.post-list-item use[href="#lock"]', fn: els => run$1(els, ctx), opts: { debounce: 80 } })
     };
 
     const __vite_glob_0_4 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
@@ -1288,15 +1290,15 @@
 
     // 图片预览
 
-    const mark = new WeakSet();
+    const mark$1 = new WeakSet();
     const bind = (els, ctx) => {
         els.forEach(img => {
             const post = img.closest("article.post-content");
-            if (!post || mark.has(img)) return;
-            mark.add(img);
+            if (!post || mark$1.has(img)) return;
+            mark$1.add(img);
             const newImg = img.cloneNode(true);
             img.replaceWith(newImg);
-            mark.add(newImg);
+            mark$1.add(newImg);
             newImg.addEventListener("click", e => {
                 e.preventDefault();
                 const imgs = [...post.querySelectorAll("img:not(.sticker)")];
@@ -1723,11 +1725,11 @@
         },
         match: ctx => ctx.loggedIn && ctx.isPost && ctx.store.get("level_tag.enabled", true),
         async init(ctx) {
-            addStyle("nsx-lv", CSS$3);
+            addStyle("nsx-lv", CSS$3 + ".user-reg-info.nsx-user-reg-loading{width:300px;height:22px;filter:blur(2px);pointer-events:none}");
             _cacheTtl = ctx.store.get("level_tag.cache_ttl", 5) * 60_000;
             const detail = ctx.store.get("level_tag.show_detail", false);
 
-            const insertFor = (container, user, anchor) => {
+            const insertFor = (user, anchor) => {
                 if (!anchor?.nextElementSibling?.classList?.contains("user-level")) {
                     const tag = createEl(ctx, user, "tag");
                     anchor?.after(tag);
@@ -1740,6 +1742,21 @@
                 }
             };
 
+            const loadFor = async (uid, anchor) => {
+                if (!anchor) return;
+                const meta = anchor.closest(".nsk-content-meta-info");
+                let placeholder;
+                if (detail && meta && !meta.previousElementSibling?.classList?.contains("user-reg-info")) {
+                    placeholder = document.createElement("div");
+                    placeholder.className = "user-reg-info nsx-user-reg-loading";
+                    placeholder.setAttribute("aria-hidden", "true");
+                    meta.before(placeholder);
+                }
+                const user = await fetchUser(uid);
+                placeholder?.remove();
+                if (user) insertFor(user, anchor);
+            };
+
             // ── 评论等级（同步初始化，确保 watch 注册前 _io 已就绪） ──
             const commentEnabled = ctx.store.get("level_tag.comment_enabled", true);
             if (commentEnabled) {
@@ -1748,9 +1765,7 @@
                     if (!anchor) return;
                     const uid = extractUid(anchor);
                     if (!uid) return;
-                    const user = await fetchUser(uid);
-                    if (!user) return;
-                    insertFor(el, user, anchor);
+                    await loadFor(uid, anchor);
                 };
 
                 _io = new IntersectionObserver(entries => {
@@ -1771,11 +1786,8 @@
             // ── 帖主等级（原有逻辑） ──
             const opUid = ctx.uw?.__config__?.postData?.op?.uid;
             if (opUid) {
-                const user = await fetchUser(opUid);
-                if (user) {
-                    const anchor = ctx.$('#nsk-body .nsk-post .nsk-content-meta-info .author-info>a');
-                    if (anchor) insertFor(anchor.closest('.nsk-post'), user, anchor);
-                }
+                const anchor = ctx.$('#nsk-body .nsk-post .nsk-content-meta-info .author-info>a');
+                await loadFor(opUid, anchor);
             }
         },
         // 处理动态加载的评论（如无限滚动）
@@ -2111,6 +2123,44 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         default: linkPurifier
     }, Symbol.toStringTag, { value: 'Module' }));
 
+    // 标题关键词高亮
+
+    const mark = new WeakSet();
+    const run = (els, ctx) => {
+        const kws = (ctx.store.get("mark_title.keywords", []) || []).map(k => String(k).trim()).filter(Boolean);
+        if (!kws.length) return;
+        const pattern = new RegExp(`(${kws.sort((left, right) => right.length - left.length).map(keyword => keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, ctx.store.get("mark_title.ignore_case", true) ? "gi" : "g");
+        els.forEach(item => {
+            if (mark.has(item)) return;
+            const title = item.querySelector(".post-title>a");
+            if (!title?.textContent.trim()) return;
+            mark.add(item);
+            const parts = title.textContent.split(pattern);
+            if (parts.length === 1) return;
+            title.replaceChildren(...parts.map((text, index) => index % 2
+                ? Object.assign(document.createElement("mark"), { className: "nsx-title-keyword", textContent: text })
+                : text));
+        });
+    };
+
+    const markTitle = {
+        id: "markTitle",
+        order: 220,
+        cfg: { mark_title: { enabled: true, ignore_case: true, keywords: [] } },
+        meta: { mark_title: { label: "标题关键词高亮", group: "显示设置", fields: { ignore_case: { label: "忽略大小写" }, keywords: { type: "TEXTAREA", label: "关键词", placeholder: "每行一个", valueType: "array" } } } },
+        match: ctx => ctx.isList && ctx.store.get("mark_title.enabled", true),
+        init(ctx) {
+            ctx.addStyle("nsx-title-keywords", ".post-title .nsx-title-keyword{background:#fff1a8;color:#5c3b00}body.dark-layout .post-title .nsx-title-keyword{background:#6b5200;color:#fff3bf}");
+            run($$(".post-list-item"), ctx);
+        },
+        watch: ctx => ({ sel: ".post-list-item", fn: els => run(els, ctx), opts: { debounce: 80 } })
+    };
+
+    const __vite_glob_0_15 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+        __proto__: null,
+        default: markTitle
+    }, Symbol.toStringTag, { value: 'Module' }));
+
     // 菜单系统（油猴菜单 + 高级设置面板）
 
     const CSS$1 = `#nsx-config-menu{height:100%;overflow-y:visible;border-right:1px solid #eee}#nsx-config-content{height:100%;overflow-y:auto;padding:0 15px;background:#f8f8f8}.nsx-config-card{margin-bottom:20px}.nsx-config-card .layui-card-header{display:flex;align-items:center;justify-content:space-between;font-weight:700}.nsx-config-card .header-checkbox{position:absolute;right:15px;top:50%;transform:translateY(-50%)}.nsx-config-card .layui-form-switch{margin-top:0!important}.nsx-config-card .layui-card-body:empty{padding-top:0;padding-bottom:0}.dark-layout #nsx-config-menu{border-right-color:#3a3a3a}.dark-layout #nsx-config-content{background:#1e1e1e}`;
@@ -2389,7 +2439,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_15 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_16 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: menus
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2431,7 +2481,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_16 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_17 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: openPostInNewTab
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2511,7 +2561,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_17 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_18 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: quickComment
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2552,7 +2602,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_18 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_19 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: signIn
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2596,7 +2646,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_19 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_20 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: signinTips
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2614,7 +2664,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_20 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_21 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: smoothScroll
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2649,28 +2699,22 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         match: ctx => ctx.loggedIn && (ctx.isPost || ctx.isList) && ctx.store.get("user_card_ext.enabled", true),
         async init(ctx) {
             const bn = new Broadcast("nsx_notify");
-            let unread = -1, timer = 0, originalTitle = "";
+            const favicons = $$("head link[rel~='icon']").map(icon => [icon, icon.href]);
+            const originalTitle = document.title;
+            let unread = -1;
             const stopNotice = () => {
-                if (!timer) return;
-                clearInterval(timer);
-                timer = 0;
                 document.title = originalTitle;
+                favicons.forEach(([icon, href]) => icon.href = href);
             };
             const updateNotice = counts => {
                 const next = +counts.all || 0, hasNew = unread >= 0 && next > unread;
                 unread = next;
                 if (!next) return stopNotice();
-                if (!hasNew || document.hasFocus()) return;
+                if (!hasNew) return;
                 stopNotice();
-                originalTitle = document.title;
-                const title = [...`【🔔 新消息】${originalTitle}　`];
-                document.title = title.join("");
-                timer = setInterval(() => {
-                    title.push(...title.splice(0, 1));
-                    document.title = title.join("");
-                }, 300);
+                document.title = `(${next}) ${originalTitle}`;
+                favicons.forEach(([icon]) => icon.href = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAMAAABEpIrGAAADAFBMVEUAAADS0tLS0tLS0tKakJHS0tLS0tLS0tLS0tLS0tLT09PS0tLT09PS0tLS0tLS0tLS0tLS0tLS0tLT09PS0tLS0tLT09PS0tLS0tLS0tLT09PS0tLT09PS0tIbGxvS0tLS0tLS0tIoGRobGxvS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tIXFxfS0tLS0tIbGxvS0tLS0tIbGxvS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tIbGxvS0tIaGhoaGhobGxvS0tLS0tIZGRnT09PS0tLS0tIZGRkbGxvS0tLS0tLS0tLS0tLS0tLS0tLS0tIbGxsaGhoZGRnS0tLS0tLmABLS0tLS0tLS0tLS0tLS0tIZGRkaGhoZGRnS0tLS0tLS0tLS0tIbGxsYGBgaGhrmABIaGhoZGRkZGRnT09PS0tLmABIbGxsaGhoaGhoaGhoaGhoaGhoaGhobGxvmABLmABIZGRkaGhoaGhoaGhrmABLmABLmABIaGhrS0tLmABIaGhoaGhoaGhobGxsaGhoaGhrmABLmABLmARIZGRkaGhobGxsZGRkaGhrmABLmABIaGhobGxsbGxsbGxsbGxsaGhrmABIaGhrmABLmABLmABLmABLmABIaGhrmABLmABLmABLmBhYbGxvR0dHmABLmABLmABLmABLmABLmABLmABLmABLVuLrkGinTxMXS0tIbGxvmABLT09McHBz////S0tIWFhYZGRn8/Pzi4uKKioomJiYODg76+vpQUFAfHx/+/v5VVVUSEhL19fXv7+9UVFTY2Njp6ekrKyvlCRqjo6Pd3d1wcHB5eXn4+PhFRUWvr686Ojq8vLw/Pz+ampoNDQ0jIyPNzMzBwcFfX19oaGjiKzozMzNYWFhLS0uFhYWAgIDccXrFxcXhOEW4uLiVlZXXpKjWsrXfUVzkGinTw8TZipDdYWvZjpTCq6yKIb56AAAAwHRSTlMADf37AQIEPesV/gf95goTD/AZ+O3N9uNZrdxE8rH9g0AtAvod4SYRucLZmdCn0yPWyUiRfHNoBH869PhV+GC0uzJ3im+Vjoeh6U83COhMEwfxxlIYBRs1HeLeFvMhHpwq2GMMY2Xxqmy3wDAhNSa+pJ4ouA+PzNQ6Rfpc+e8/akuul2+znP5UnSuJBsIydBcihFzL36ijGrgrL1jPCnpr9lDcwuzFf0HIEqFW43q/SVzgrb3qeI2Eez1ePF3J0P7EI/bjAAAA8UlEQVR42u2TrQ4CMQzHK5AI8AiQ4ECcAgEOEiTy3gB5AiSPgEbxKLvuGiSPxPqxsYOEYElost3d+uu/bboD+JsZIW9E7TOSQ3mnfjwAOHu3V4KdGsXbTlTAO7Wky2FzQcUfXD4RI5XgtbRkFs7M1iQmQYJ9YwV80zjPm0gglUIxiNQBqJwTXwRWliOV4HLgYtWzgtUiLdy4iHtYB2vBakDqxSKfbUyzFMVrF966KINCN+VYmD8QlZWAVChJOBMJb0z4WCOmMaWxnDRJiK/ZYCjHG82BOsbrUR4C1DZhpEFGZP66fQXgHfhwib4DfueneAC6x+uQp8GIpgAAAABJRU5ErkJggg==");
             };
-            addEventListener("focus", stopNotice);
 
             const card = $(".user-card .user-stat");
             const last = card?.querySelector(".stat-block:first-child > :last-child");
@@ -2706,7 +2750,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_21 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_22 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: userCardExt
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2739,7 +2783,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         }
     };
 
-    const __vite_glob_0_22 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+    const __vite_glob_0_23 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
         __proto__: null,
         default: visitedColor
     }, Symbol.toStringTag, { value: 'Module' }));
@@ -2804,7 +2848,7 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
         addStyle("nsx-layui-dark", "https://s.cfn.pp.ua/layui/theme-dark/2.10.3/css/layui-theme-dark-selector.css");
 
         // 加载模块
-        const mods = /* #__PURE__ */ Object.assign({"./features/autoLoading.js": __vite_glob_0_0,"./features/backup.js": __vite_glob_0_1,"./features/blockMembers.js": __vite_glob_0_2,"./features/blockPosts.js": __vite_glob_0_3,"./features/blockViewLevel.js": __vite_glob_0_4,"./features/codeHighlight.js": __vite_glob_0_5,"./features/commentFootprint.js": __vite_glob_0_6,"./features/darkMode.js": __vite_glob_0_7,"./features/editorEnhance.js": __vite_glob_0_8,"./features/history.js": __vite_glob_0_9,"./features/imageSlide.js": __vite_glob_0_10,"./features/imageUpload.js": __vite_glob_0_11,"./features/instantPage.js": __vite_glob_0_12,"./features/levelTag.js": __vite_glob_0_13,"./features/linkPurifier.js": __vite_glob_0_14,"./features/menus.js": __vite_glob_0_15,"./features/openPostInNewTab.js": __vite_glob_0_16,"./features/quickComment.js": __vite_glob_0_17,"./features/signIn.js": __vite_glob_0_18,"./features/signinTips.js": __vite_glob_0_19,"./features/smoothScroll.js": __vite_glob_0_20,"./features/userCardExt.js": __vite_glob_0_21,"./features/visitedColor.js": __vite_glob_0_22});
+        const mods = /* #__PURE__ */ Object.assign({"./features/autoLoading.js": __vite_glob_0_0,"./features/backup.js": __vite_glob_0_1,"./features/blockMembers.js": __vite_glob_0_2,"./features/blockPosts.js": __vite_glob_0_3,"./features/blockViewLevel.js": __vite_glob_0_4,"./features/codeHighlight.js": __vite_glob_0_5,"./features/commentFootprint.js": __vite_glob_0_6,"./features/darkMode.js": __vite_glob_0_7,"./features/editorEnhance.js": __vite_glob_0_8,"./features/history.js": __vite_glob_0_9,"./features/imageSlide.js": __vite_glob_0_10,"./features/imageUpload.js": __vite_glob_0_11,"./features/instantPage.js": __vite_glob_0_12,"./features/levelTag.js": __vite_glob_0_13,"./features/linkPurifier.js": __vite_glob_0_14,"./features/markTitle.js": __vite_glob_0_15,"./features/menus.js": __vite_glob_0_16,"./features/openPostInNewTab.js": __vite_glob_0_17,"./features/quickComment.js": __vite_glob_0_18,"./features/signIn.js": __vite_glob_0_19,"./features/signinTips.js": __vite_glob_0_20,"./features/smoothScroll.js": __vite_glob_0_21,"./features/userCardExt.js": __vite_glob_0_22,"./features/visitedColor.js": __vite_glob_0_23});
         Object.values(mods).forEach(m => m.default && define(m.default));
 
         // 创建 Observer & ctx

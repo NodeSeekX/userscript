@@ -87,11 +87,11 @@ export default {
     },
     match: ctx => ctx.loggedIn && ctx.isPost && ctx.store.get("level_tag.enabled", true),
     async init(ctx) {
-        addStyle("nsx-lv", CSS);
+        addStyle("nsx-lv", CSS + ".user-reg-info.nsx-user-reg-loading{width:300px;height:22px;filter:blur(2px);pointer-events:none}");
         _cacheTtl = ctx.store.get("level_tag.cache_ttl", 5) * 60_000;
         const detail = ctx.store.get("level_tag.show_detail", false);
 
-        const insertFor = (container, user, anchor) => {
+        const insertFor = (user, anchor) => {
             if (!anchor?.nextElementSibling?.classList?.contains("user-level")) {
                 const tag = createEl(ctx, user, "tag");
                 anchor?.after(tag);
@@ -104,6 +104,21 @@ export default {
             }
         };
 
+        const loadFor = async (uid, anchor) => {
+            if (!anchor) return;
+            const meta = anchor.closest(".nsk-content-meta-info");
+            let placeholder;
+            if (detail && meta && !meta.previousElementSibling?.classList?.contains("user-reg-info")) {
+                placeholder = document.createElement("div");
+                placeholder.className = "user-reg-info nsx-user-reg-loading";
+                placeholder.setAttribute("aria-hidden", "true");
+                meta.before(placeholder);
+            }
+            const user = await fetchUser(uid);
+            placeholder?.remove();
+            if (user) insertFor(user, anchor);
+        };
+
         // ── 评论等级（同步初始化，确保 watch 注册前 _io 已就绪） ──
         const commentEnabled = ctx.store.get("level_tag.comment_enabled", true);
         if (commentEnabled) {
@@ -112,9 +127,7 @@ export default {
                 if (!anchor) return;
                 const uid = extractUid(anchor);
                 if (!uid) return;
-                const user = await fetchUser(uid);
-                if (!user) return;
-                insertFor(el, user, anchor);
+                await loadFor(uid, anchor);
             };
 
             _io = new IntersectionObserver(entries => {
@@ -135,11 +148,8 @@ export default {
         // ── 帖主等级（原有逻辑） ──
         const opUid = ctx.uw?.__config__?.postData?.op?.uid;
         if (opUid) {
-            const user = await fetchUser(opUid);
-            if (user) {
-                const anchor = ctx.$('#nsk-body .nsk-post .nsk-content-meta-info .author-info>a');
-                if (anchor) insertFor(anchor.closest('.nsk-post'), user, anchor);
-            }
+            const anchor = ctx.$('#nsk-body .nsk-post .nsk-content-meta-info .author-info>a');
+            await loadFor(opUid, anchor);
         }
     },
     // 处理动态加载的评论（如无限滚动）

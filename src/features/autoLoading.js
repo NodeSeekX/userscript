@@ -114,7 +114,9 @@ export default {
                     if (s && d) d.innerHTML = s.innerHTML;
                 });
 
-                history.pushState(null, null, nextUrl);
+                if (!ctx.isPost || !ctx.store.get("loading_comment.nested")) {
+                    history.pushState(null, null, nextUrl);
+                }
             } catch (e) { ctx.env.error("autoLoading", e); }
             busy = false;
         };
