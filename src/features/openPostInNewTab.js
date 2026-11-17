@@ -10,7 +10,9 @@ export default {
         try {
             ctx.uw.indexedDB.open("ns-preference-db").onsuccess = e => {
                 const db = e.target.result;
-                const s = db.transaction("ns-preference-store", "readwrite").objectStore("ns-preference-store");
+                const tx = db.transaction("ns-preference-store", "readwrite");
+                tx.oncomplete = tx.onabort = () => db.close();
+                const s = tx.objectStore("ns-preference-store");
                 s.get("configuration").onsuccess = e2 => {
                     const c = e2.target.result || {};
                     if (c.openPostInNewPage !== val) {

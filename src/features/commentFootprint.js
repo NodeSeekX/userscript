@@ -28,6 +28,13 @@ const REPLIED_BADGE_CSS = `
 let dbInstance = null;
 let dbInitPromise = null;
 
+// 离页时释放连接，避免影响前进后退缓存；恢复后由 getDB 按需重连。
+addEventListener('pagehide', () => {
+    dbInstance?.close();
+    dbInstance = null;
+    dbInitPromise = null;
+});
+
 const getDB = () => {
     if (dbInstance) return Promise.resolve(dbInstance);
     if (dbInitPromise) return dbInitPromise;

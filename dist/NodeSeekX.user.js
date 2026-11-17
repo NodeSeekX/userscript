@@ -681,6 +681,13 @@
     let dbInstance = null;
     let dbInitPromise = null;
 
+    // 离页时释放连接，避免影响前进后退缓存；恢复后由 getDB 按需重连。
+    addEventListener('pagehide', () => {
+        dbInstance?.close();
+        dbInstance = null;
+        dbInitPromise = null;
+    });
+
     const getDB = () => {
         if (dbInstance) return Promise.resolve(dbInstance);
         if (dbInitPromise) return dbInitPromise;
@@ -1276,7 +1283,7 @@
             if (pd) add(pd, getH, saveH);
 
             // 监听页面关闭
-            addEventListener("beforeunload", () => {
+            addEventListener("pagehide", () => {
                 const pd = ctx.uw?.__config__?.postData;
                 if (pd) add(pd, getR, saveR);
             }, { capture: true });
@@ -2456,7 +2463,9 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
             try {
                 ctx.uw.indexedDB.open("ns-preference-db").onsuccess = e => {
                     const db = e.target.result;
-                    const s = db.transaction("ns-preference-store", "readwrite").objectStore("ns-preference-store");
+                    const tx = db.transaction("ns-preference-store", "readwrite");
+                    tx.oncomplete = tx.onabort = () => db.close();
+                    const s = tx.objectStore("ns-preference-store");
                     s.get("configuration").onsuccess = e2 => {
                         const c = e2.target.result || {};
                         if (c.openPostInNewPage !== val) {
@@ -2680,7 +2689,18 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
             this.KEY = `nsx_tab_${name}`;
             try { this.ch = new BroadcastChannel(name); this.ch.onmessage = e => this.recv.forEach(f => f(e.data)); } catch { this.ch = null; }
             addEventListener("storage", e => { if (e.key === this.KEY) { e.newValue || localStorage.setItem(this.KEY, this.myId); this._up(); } });
-            addEventListener("beforeunload", () => { if (this.active) localStorage.removeItem(this.KEY); });
+            addEventListener("pagehide", () => {
+                if (this.active) localStorage.removeItem(this.KEY);
+                this.active = false;
+                this.ch?.close();
+                this.ch = null;
+            });
+            addEventListener("pageshow", e => {
+                if (!e.persisted) return;
+                try { this.ch = new BroadcastChannel(name); this.ch.onmessage = e => this.recv.forEach(f => f(e.data)); } catch { this.ch = null; }
+                if (!localStorage.getItem(this.KEY)) localStorage.setItem(this.KEY, this.myId);
+                this._up();
+            });
             localStorage.setItem(this.KEY, this.myId);
             this._up();
             Broadcast.ins.set(name, this);
