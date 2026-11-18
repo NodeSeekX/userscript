@@ -114,8 +114,11 @@ export default {
                     if (s && d) d.innerHTML = s.innerHTML;
                 });
 
-                if (!ctx.isPost || !ctx.store.get("loading_comment.nested")) {
+                if (!ctx.isPost) {
                     history.pushState(null, null, nextUrl);
+                } else if (!ctx.store.get("loading_comment.nested")) {
+                    // 自动加载的评论留在同一条文章历史记录中，后退时直接返回列表。
+                    history.replaceState(history.state, "", nextUrl);
                 }
             } catch (e) { ctx.env.error("autoLoading", e); }
             busy = false;
