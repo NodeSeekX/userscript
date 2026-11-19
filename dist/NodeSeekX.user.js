@@ -287,8 +287,11 @@
                         if (s && d) d.innerHTML = s.innerHTML;
                     });
 
-                    if (!ctx.isPost || !ctx.store.get("loading_comment.nested")) {
+                    if (!ctx.isPost) {
                         history.pushState(null, null, nextUrl);
+                    } else if (!ctx.store.get("loading_comment.nested")) {
+                        // 自动加载的评论留在同一条文章历史记录中，后退时直接返回列表。
+                        history.replaceState(history.state, "", nextUrl);
                     }
                 } catch (e) { ctx.env.error("autoLoading", e); }
                 busy = false;
@@ -680,6 +683,13 @@
     // 数据库单例连接与操作
     let dbInstance = null;
     let dbInitPromise = null;
+
+    // 离页时释放连接，避免影响前进后退缓存；恢复后由 getDB 按需重连。
+    addEventListener('pagehide', () => {
+        dbInstance?.close();
+        dbInstance = null;
+        dbInitPromise = null;
+    });
 
     const getDB = () => {
         if (dbInstance) return Promise.resolve(dbInstance);
@@ -1276,7 +1286,7 @@
             if (pd) add(pd, getH, saveH);
 
             // 监听页面关闭
-            addEventListener("beforeunload", () => {
+            addEventListener("pagehide", () => {
                 const pd = ctx.uw?.__config__?.postData;
                 if (pd) add(pd, getR, saveR);
             }, { capture: true });
@@ -2456,7 +2466,9 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
             try {
                 ctx.uw.indexedDB.open("ns-preference-db").onsuccess = e => {
                     const db = e.target.result;
-                    const s = db.transaction("ns-preference-store", "readwrite").objectStore("ns-preference-store");
+                    const tx = db.transaction("ns-preference-store", "readwrite");
+                    tx.oncomplete = tx.onabort = () => db.close();
+                    const s = tx.objectStore("ns-preference-store");
                     s.get("configuration").onsuccess = e2 => {
                         const c = e2.target.result || {};
                         if (c.openPostInNewPage !== val) {
@@ -2466,18 +2478,19 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
                     };
                 };
             } catch { }
-        },
-        watch: ctx => {
-            if (!ctx.store.get("open_post_in_new_tab.enabled", false)) return;
-            return {
-                sel: '.post-list-item .post-title a',
-                fn: els => els.forEach(a => {
-                    if (a.target !== "_blank") {
-                        a.target = "_blank";
-                    }
-                }),
-                opts: { debounce: 80 }
+            const isSearch = /^\/search\/?$/.test(location.pathname);
+            if (!isSearch && !val) return;
+
+            const selector = isSearch ? "a[href]" : ".post-list-item .post-title a";
+            const target = val ? "_blank" : "_self";
+            const applyTarget = links => {
+                links.forEach(a => {
+                    if (isSearch && (a.origin !== location.origin || !/^\/post-\d+(?:-\d+)?\/?$/.test(a.pathname))) return;
+                    if (a.target !== target) a.target = target;
+                });
             };
+            applyTarget(ctx.$$(selector));
+            ctx.watch(selector, applyTarget);
         }
     };
 
@@ -2680,7 +2693,18 @@ a.nsp-resolving::after{content:"";display:inline-block;width:10px;height:10px;ma
             this.KEY = `nsx_tab_${name}`;
             try { this.ch = new BroadcastChannel(name); this.ch.onmessage = e => this.recv.forEach(f => f(e.data)); } catch { this.ch = null; }
             addEventListener("storage", e => { if (e.key === this.KEY) { e.newValue || localStorage.setItem(this.KEY, this.myId); this._up(); } });
-            addEventListener("beforeunload", () => { if (this.active) localStorage.removeItem(this.KEY); });
+            addEventListener("pagehide", () => {
+                if (this.active) localStorage.removeItem(this.KEY);
+                this.active = false;
+                this.ch?.close();
+                this.ch = null;
+            });
+            addEventListener("pageshow", e => {
+                if (!e.persisted) return;
+                try { this.ch = new BroadcastChannel(name); this.ch.onmessage = e => this.recv.forEach(f => f(e.data)); } catch { this.ch = null; }
+                if (!localStorage.getItem(this.KEY)) localStorage.setItem(this.KEY, this.myId);
+                this._up();
+            });
             localStorage.setItem(this.KEY, this.myId);
             this._up();
             Broadcast.ins.set(name, this);

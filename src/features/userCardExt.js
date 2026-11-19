@@ -10,7 +10,18 @@ class Broadcast {
         this.KEY = `nsx_tab_${name}`;
         try { this.ch = new BroadcastChannel(name); this.ch.onmessage = e => this.recv.forEach(f => f(e.data)); } catch { this.ch = null; }
         addEventListener("storage", e => { if (e.key === this.KEY) { e.newValue || localStorage.setItem(this.KEY, this.myId); this._up(); } });
-        addEventListener("beforeunload", () => { if (this.active) localStorage.removeItem(this.KEY); });
+        addEventListener("pagehide", () => {
+            if (this.active) localStorage.removeItem(this.KEY);
+            this.active = false;
+            this.ch?.close();
+            this.ch = null;
+        });
+        addEventListener("pageshow", e => {
+            if (!e.persisted) return;
+            try { this.ch = new BroadcastChannel(name); this.ch.onmessage = e => this.recv.forEach(f => f(e.data)); } catch { this.ch = null; }
+            if (!localStorage.getItem(this.KEY)) localStorage.setItem(this.KEY, this.myId);
+            this._up();
+        });
         localStorage.setItem(this.KEY, this.myId);
         this._up();
         Broadcast.ins.set(name, this);

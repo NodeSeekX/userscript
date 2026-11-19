@@ -10,7 +10,9 @@ export default {
         try {
             ctx.uw.indexedDB.open("ns-preference-db").onsuccess = e => {
                 const db = e.target.result;
-                const s = db.transaction("ns-preference-store", "readwrite").objectStore("ns-preference-store");
+                const tx = db.transaction("ns-preference-store", "readwrite");
+                tx.oncomplete = tx.onabort = () => db.close();
+                const s = tx.objectStore("ns-preference-store");
                 s.get("configuration").onsuccess = e2 => {
                     const c = e2.target.result || {};
                     if (c.openPostInNewPage !== val) {
@@ -20,17 +22,18 @@ export default {
                 };
             };
         } catch { }
-    },
-    watch: ctx => {
-        if (!ctx.store.get("open_post_in_new_tab.enabled", false)) return;
-        return {
-            sel: '.post-list-item .post-title a',
-            fn: els => els.forEach(a => {
-                if (a.target !== "_blank") {
-                    a.target = "_blank";
-                }
-            }),
-            opts: { debounce: 80 }
+        const isSearch = /^\/search\/?$/.test(location.pathname);
+        if (!isSearch && !val) return;
+
+        const selector = isSearch ? "a[href]" : ".post-list-item .post-title a";
+        const target = val ? "_blank" : "_self";
+        const applyTarget = links => {
+            links.forEach(a => {
+                if (isSearch && (a.origin !== location.origin || !/^\/post-\d+(?:-\d+)?\/?$/.test(a.pathname))) return;
+                if (a.target !== target) a.target = target;
+            });
         };
+        applyTarget(ctx.$$(selector));
+        ctx.watch(selector, applyTarget);
     }
 };

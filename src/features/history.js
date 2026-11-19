@@ -117,7 +117,7 @@ export default {
         if (pd) add(pd, getH, saveH);
 
         // 监听页面关闭
-        addEventListener("beforeunload", () => {
+        addEventListener("pagehide", () => {
             const pd = ctx.uw?.__config__?.postData;
             if (pd) add(pd, getR, saveR);
         }, { capture: true });
